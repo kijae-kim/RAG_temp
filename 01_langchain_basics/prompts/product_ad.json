@@ -1,0 +1,16 @@
+{
+    "name": null,
+    "input_variables": [
+        "length",
+        "product"
+    ],
+    "optional_variables": [],
+    "output_parser": null,
+    "partial_variables": {},
+    "metadata": null,
+    "tags": null,
+    "template": "{product}\uc5d0 \ub300\ud55c {length}\uc790 \uc774\ub0b4\uc758 \uad11\uace0 \ubb38\uad6c\ub97c \uc791\uc131\ud574\uc8fc\uc138\uc694.",
+    "template_format": "f-string",
+    "validate_template": false,
+    "_type": "prompt"
+}
