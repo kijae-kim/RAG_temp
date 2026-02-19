@@ -10,6 +10,9 @@ langgraph>=0.2.0
 chromadb>=0.5.0
 faiss-cpu>=1.8.0
 
+# Retriever
+rank_bm25>=0.2.2
+
 # Document Loaders
 pypdf>=4.0.0
 python-docx>=1.0.0
