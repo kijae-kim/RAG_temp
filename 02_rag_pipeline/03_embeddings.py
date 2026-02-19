@@ -46,7 +46,7 @@ print("=" * 50)
 print("2. HuggingFace 임베딩 (all-MiniLM-L6-v2)")
 print("=" * 50)
 
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # all-MiniLM-L6-v2: 가볍고 빠른 임베딩 모델 (384차원)
 # 첫 실행 시 모델 다운로드 (~80MB)

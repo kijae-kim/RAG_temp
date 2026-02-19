@@ -21,7 +21,7 @@ load_dotenv()
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # ============================================================
 # 0. 준비: PDF 로딩 + 분할 + 임베딩 모델 (이전 실습 복습)

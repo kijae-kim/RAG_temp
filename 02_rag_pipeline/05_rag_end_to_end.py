@@ -47,7 +47,7 @@ print(f"   분할 완료: {len(docs)}개 청크")
 
 # --- Step 3: 임베딩 + 벡터 저장 ---
 print("\n🔢 Step 3: 임베딩 & 벡터 저장 (ChromaDB)")
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 
 embeddings = HuggingFaceEmbeddings(
