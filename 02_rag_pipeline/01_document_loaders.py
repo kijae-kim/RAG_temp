@@ -48,7 +48,7 @@ print("=" * 50)
 from langchain_community.document_loaders import PyPDFLoader
 
 # PDF 파일 경로 (predicting_music.pdf)
-pdf_path = os.path.join(os.path.dirname(__file__), "..", "..", "predicting_music.pdf")
+pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "predicting_music.pdf")
 pdf_path = os.path.abspath(pdf_path)
 
 print(f"PDF 경로: {pdf_path}")

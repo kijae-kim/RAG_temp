@@ -20,7 +20,7 @@ load_dotenv()
 from langchain_community.document_loaders import PyPDFLoader
 
 # 이전 실습에서 사용한 PDF 로딩
-pdf_path = os.path.join(os.path.dirname(__file__), "..", "..", "predicting_music.pdf")
+pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "predicting_music.pdf")
 pdf_path = os.path.abspath(pdf_path)
 pages = PyPDFLoader(pdf_path).load()
 

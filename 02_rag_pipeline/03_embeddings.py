@@ -212,7 +212,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # PDF 로딩 + 분할 (이전 실습 복습)
-pdf_path = os.path.join(os.path.dirname(__file__), "..", "..", "predicting_music.pdf")
+pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "predicting_music.pdf")
 pdf_path = os.path.abspath(pdf_path)
 
 pages = PyPDFLoader(pdf_path).load()

@@ -31,7 +31,7 @@ print("=" * 60)
 print("0. 데이터 준비")
 print("=" * 60)
 
-pdf_path = os.path.join(os.path.dirname(__file__), "..", "..", "predicting_music.pdf")
+pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "predicting_music.pdf")
 pdf_path = os.path.abspath(pdf_path)
 
 pages = PyPDFLoader(pdf_path).load()

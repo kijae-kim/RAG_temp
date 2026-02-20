@@ -30,7 +30,7 @@ print("=" * 50)
 print("0. 데이터 준비 (이전 실습 복습)")
 print("=" * 50)
 
-pdf_path = os.path.join(os.path.dirname(__file__), "..", "..", "predicting_music.pdf")
+pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "predicting_music.pdf")
 pdf_path = os.path.abspath(pdf_path)
 
 # PDF 로딩 → 텍스트 분할

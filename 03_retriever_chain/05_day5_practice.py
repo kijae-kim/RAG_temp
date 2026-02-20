@@ -30,7 +30,7 @@ print("=" * 60)
 print("\n📄 Step 1: 문서 로딩")
 from langchain_community.document_loaders import PyPDFLoader
 
-pdf_path = os.path.join(os.path.dirname(__file__), "..", "..", "predicting_music.pdf")
+pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "predicting_music.pdf")
 pdf_path = os.path.abspath(pdf_path)
 pages = PyPDFLoader(pdf_path).load()
 print(f"   로드 완료: {len(pages)}페이지")
