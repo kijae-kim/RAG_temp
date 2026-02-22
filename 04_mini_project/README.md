@@ -18,6 +18,7 @@
 7. [모듈 구조](#7-모듈-구조)
 8. [실행 방법](#8-실행-방법)
 9. [학습 연계 맵](#9-학습-연계-맵)
+10. [엔지니어링 표준](#10-엔지니어링-표준)
 
 ---
 
@@ -175,6 +176,7 @@
 | 자동 인덱싱 | 업로드 시 BM25 + FAISS 자동 생성 | `st.session_state` 캐싱 |
 | 하이브리드 검색 | 키워드 + 의미 검색 결합 | EnsembleRetriever |
 | 대화 맥락 유지 | 후속 질문 처리 | History-Aware Retriever |
+| 스트리밍 응답 | LLM 답변 실시간 출력 | `ChatOllama(streaming=True)` + `st.write_stream` |
 | 출처 표시 | 답변 근거 페이지 표시 | Document metadata |
 | 백엔드 로그 | 처리 과정 터미널 출력 | Python logging |
 
@@ -319,6 +321,15 @@ RAG Engine
 LLM
 └── Ollama (llama3.2:3b)   — 로컬 LLM (무료, 오프라인)
 
+Evaluation
+└── Ragas                  — RAG 품질 정량 평가 (Phase 3)
+    ├── faithfulness        — 답변이 컨텍스트에 충실한가
+    ├── answer_relevancy    — 답변이 질문에 관련된가
+    └── context_precision   — 검색된 청크가 적절히 선택됐는가
+
+Observability (선택)
+└── LangSmith              — 체인 전체 추적·디버깅 (LANGCHAIN_TRACING=true)
+
 macOS Integration (Stage 2)
 ├── macOS Automator        — Quick Action 등록
 ├── rumps                  — 메뉴바 앱
@@ -385,6 +396,32 @@ ensemble = EnsembleRetriever(
 )
 ```
 
+### RAG 품질 평가 (Ragas)
+
+"답변이 그럴듯하다"는 주관적 판단 대신, Phase 3에서 Ragas로 정량적 검증한다.
+
+```text
+3대 평가 지표:
+
+  Faithfulness      : 0.0 ~ 1.0  ← 답변이 검색된 청크에 충실한가
+                                    (환각(Hallucination) 탐지)
+  Answer Relevancy  : 0.0 ~ 1.0  ← 답변이 질문에 관련된가
+  Context Precision : 0.0 ~ 1.0  ← 검색된 청크가 실제로 필요한 내용인가
+
+  Phase 3 통과 기준:
+  Faithfulness ≥ 0.80, Answer Relevancy ≥ 0.85
+```
+
+`predicting_music.pdf` 기반 테스트 질문셋:
+
+| 질문 | 평가 포인트 |
+| --- | --- |
+| "이 논문의 핵심 contribution은?" | Answer Relevancy |
+| "사용된 오디오 피처 목록은 무엇인가?" | Faithfulness (정확한 열거) |
+| "분류 모델의 정확도 수치는?" | Context Precision (수치 검색) |
+| "그 모델의 한계는?" (후속 질문) | History-Aware 동작 확인 |
+| "저자들이 제안한 향후 연구 방향은?" | 의미 검색 (FAISS 담당) |
+
 ---
 
 ## 7. 모듈 구조
@@ -401,9 +438,13 @@ ensemble = EnsembleRetriever(
 │   │   ├── __init__(pdf_source)    # 파일 경로 or 업로드 객체
 │   │   ├── _build_index()          # BM25 + FAISS 인덱싱
 │   │   ├── _build_chain()          # History-Aware RAG 체인
-│   │   ├── chat(question, session) # 질문 → 답변 반환
+│   │   ├── chat(question, session) # 질문 → 답변 + 출처 반환 (스트리밍)
 │   │   └── get_doc_info()          # 페이지 수, 청크 수 반환
 │   └── 로깅 설정 (터미널 출력)
+│
+├── evaluate.py         # Ragas 평가 스크립트 (Phase 3)
+│   ├── TEST_QUESTIONS  # predicting_music.pdf 기반 검증 질문셋
+│   └── run_ragas()     # Faithfulness / Answer Relevancy / Context Precision 측정
 │
 └── README.md           # 이 문서
 ```
@@ -411,13 +452,22 @@ ensemble = EnsembleRetriever(
 ### `rag_engine.py` 인터페이스 설계
 
 ```python
+from langchain_core.documents import Document
+
+class PDFChatbot:
+    def __init__(self, pdf_source: str | UploadedFile) -> None: ...
+    def chat(self, question: str, session_id: str) -> dict[str, str | list[Document]]: ...
+    def get_doc_info(self) -> dict[str, int | str]: ...
+
+# chat() 반환 구조
+result = chatbot.chat("질문", session_id="user_1")
+# → {"answer": str, "sources": list[Document], "query": str}
+
 # Stage 1 (Streamlit)에서 사용
 chatbot = PDFChatbot(uploaded_file)      # 업로드된 파일 객체
-answer = chatbot.chat("질문", session_id="user_1")
 
 # Stage 2 (macOS 연동)에서 재사용
 chatbot = PDFChatbot("/path/to/paper.pdf")  # 로컬 파일 경로
-answer = chatbot.chat("질문", session_id="user_1")
 ```
 
 `PDFChatbot`은 입력 소스(업로드 객체 vs 파일 경로)만 추상화하고, 내부 RAG 로직은 동일하게 재사용.
@@ -501,10 +551,53 @@ Streamlit 실행 터미널에서 실시간 확인:
 
 ```text
 Phase 1  rag_engine.py 구현 (RAG 엔진 모듈화)
+         완료 기준: PDFChatbot이 파일 경로·업로드 객체 모두 처리, chat() 정상 반환
+
 Phase 2  app.py 구현 (Streamlit UI)
-Phase 3  통합 테스트 (predicting_music.pdf로 검증)
+         완료 기준: PDF 업로드 → 스트리밍 답변 → 출처 표시 전 과정 동작
+
+Phase 3  Ragas 평가 (predicting_music.pdf 정량 검증)
+         완료 기준: Faithfulness ≥ 0.80 AND Answer Relevancy ≥ 0.85
+
 Phase 4  macOS Quick Action 등록 (Stage 2 진입)
+         완료 기준: PDF 우클릭 → 챗봇 팝업 자동 실행 (포트 충돌 없이)
+
 Phase 5  메뉴바 앱 고도화 (선택)
+         완료 기준: 메뉴바 아이콘에서 PDF 선택 → 팝업 실행
+```
+
+---
+
+## 10. 엔지니어링 표준
+
+학습 단계지만 프로덕션 수준의 코드 습관을 실천한다.
+
+| 표준 | 적용 방식 | 이유 |
+| --- | --- | --- |
+| **Type Safety** | 모든 함수·클래스에 Python Type Hints 적용 | 런타임 오류 방지, IDE 자동완성 향상 |
+| **Streaming Response** | `ChatOllama(streaming=True)` + `st.write_stream` | 답변을 기다리지 않고 실시간으로 확인 |
+| **Config 중앙화** | 청크 크기·가중치 등 파라미터를 상수로 분리 | 코드 변경 없이 파라미터 조정 가능 |
+| **Observability** | 터미널 로깅 기본 + LangSmith 선택 연동 | 체인 전체 흐름 추적, 디버깅 가시성 확보 |
+
+### Config 예시
+
+```python
+# rag_engine.py 상단에 모아서 관리
+CHUNK_SIZE: int = 500
+CHUNK_OVERLAP: int = 50
+RETRIEVER_K: int = 4
+ENSEMBLE_WEIGHTS: list[float] = [0.5, 0.5]
+EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+LLM_MODEL: str = "llama3.2:3b"
+```
+
+### LangSmith 선택 연동
+
+```bash
+# .env 파일에 추가 (없으면 비활성화, 터미널 로깅만 동작)
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=your_key_here
+LANGCHAIN_PROJECT=rag-mini-project
 ```
 
 ---
