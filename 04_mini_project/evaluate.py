@@ -178,43 +178,31 @@ def run_ragas_evaluation(samples: list[EvalSample]) -> dict[str, float]:
 
     print(f"\n  유효 샘플: {len(valid)}/{len(samples)}개")
 
-    import openai
+    import math
+    import warnings
+
     from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_ollama import ChatOllama
     from ragas import EvaluationDataset, SingleTurnSample, evaluate
     from ragas.embeddings import LangchainEmbeddingsWrapper
-    from ragas.llms import llm_factory
-    from ragas.metrics.collections import AnswerRelevancy, Faithfulness
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.metrics import answer_relevancy, faithfulness
 
-    # ragas 0.4.x의 collections 메트릭은 instructor 기반 InstructorLLM만 허용한다.
-    # LangchainLLMWrapper(legacy)는 ValueError를 발생시킨다.
-    # → Ollama의 OpenAI 호환 엔드포인트(http://localhost:11434/v1)를 통해
-    #   llm_factory로 InstructorLLM을 생성한다.
-    ollama_client = openai.OpenAI(
-        base_url="http://localhost:11434/v1",
-        api_key="ollama",  # Ollama는 인증 불필요, dummy 값
-    )
-    ragas_llm = llm_factory("llama3.2:3b", client=ollama_client)
-
-    # 임베딩은 여전히 LangchainEmbeddingsWrapper 사용 가능
-    embeddings = LangchainEmbeddingsWrapper(
-        HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={"device": "cpu"},
+    # ragas 0.4.x: 레거시 메트릭(ragas.metrics)은 LangchainLLMWrapper와 호환된다.
+    # collections 메트릭은 instructor 기반이라 llama3.2:3b에서 구조화 출력 실패.
+    llm = ChatOllama(model="llama3.2:3b", temperature=0.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        ragas_llm = LangchainLLMWrapper(llm)
+        ragas_embeddings = LangchainEmbeddingsWrapper(
+            HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={"device": "cpu"},
+            )
         )
-    )
-
-    metrics = [
-        Faithfulness(llm=ragas_llm),
-        AnswerRelevancy(llm=ragas_llm, embeddings=embeddings),
-    ]
-
-    try:
-        from ragas.metrics.collections import ContextPrecisionWithoutReference
-
-        metrics.append(ContextPrecisionWithoutReference(llm=ragas_llm))
-        print("  ContextPrecisionWithoutReference: 활성화")
-    except Exception:
-        print("  ContextPrecisionWithoutReference: 현재 설정 미지원, 스킵")
+        faithfulness.llm = ragas_llm
+        answer_relevancy.llm = ragas_llm
+        answer_relevancy.embeddings = ragas_embeddings
 
     ragas_samples = [
         SingleTurnSample(
@@ -230,11 +218,17 @@ def run_ragas_evaluation(samples: list[EvalSample]) -> dict[str, float]:
     )
 
     try:
-        result = evaluate(
-            EvaluationDataset(samples=ragas_samples),
-            metrics=metrics,
-            raise_exceptions=False,  # 개별 샘플 실패 시 NaN 처리, 전체 중단 방지
-        )
+        from ragas.run_config import RunConfig
+        # 로컬 LLM은 응답이 느리므로 timeout을 기본값(180s)보다 넉넉히 설정
+        run_cfg = RunConfig(timeout=300, max_retries=3, max_workers=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            result = evaluate(
+                EvaluationDataset(samples=ragas_samples),
+                metrics=[faithfulness, answer_relevancy],
+                run_config=run_cfg,
+                raise_exceptions=False,
+            )
     except Exception as exc:
         err = str(exc).lower()
         if "connection" in err or "refused" in err:
@@ -244,11 +238,11 @@ def run_ragas_evaluation(samples: list[EvalSample]) -> dict[str, float]:
         raise
 
     df = result.to_pandas()
-
-    # to_pandas()는 metric 컬럼 외에 입력 데이터 컬럼도 포함하므로
-    # 숫자형 컬럼만 추출해 평균을 계산한다
     numeric_cols = df.select_dtypes(include="number").columns.tolist()
-    scores = {col: round(float(df[col].mean()), 4) for col in numeric_cols}
+    scores: dict[str, float] = {}
+    for col in numeric_cols:
+        valid_vals = [v for v in df[col] if not math.isnan(v)]
+        scores[col] = round(sum(valid_vals) / len(valid_vals), 4) if valid_vals else float("nan")
 
     return scores
 
