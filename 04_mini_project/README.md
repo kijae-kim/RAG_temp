@@ -10,15 +10,16 @@
 ## 목차
 
 1. [프로젝트 개요](#1-프로젝트-개요)
-2. [시스템 아키텍처](#2-시스템-아키텍처)
-3. [Stage 1 — Streamlit RAG 챗봇](#3-stage-1--streamlit-rag-챗봇)
-4. [Stage 2 — macOS 논문 뷰어 연동](#4-stage-2--macos-논문-뷰어-연동)
-5. [기술 스택](#5-기술-스택)
-6. [RAG 파이프라인 설계](#6-rag-파이프라인-설계)
-7. [모듈 구조](#7-모듈-구조)
-8. [실행 방법](#8-실행-방법)
-9. [학습 연계 맵](#9-학습-연계-맵)
-10. [엔지니어링 표준](#10-엔지니어링-표준)
+2. [기술 선택 근거](#2-기술-선택-근거)
+3. [시스템 아키텍처](#3-시스템-아키텍처)
+4. [Stage 1 — Streamlit RAG 챗봇](#4-stage-1--streamlit-rag-챗봇)
+5. [Stage 2 — macOS 논문 뷰어 연동](#5-stage-2--macos-논문-뷰어-연동)
+6. [기술 스택](#6-기술-스택)
+7. [RAG 파이프라인 설계](#7-rag-파이프라인-설계)
+8. [모듈 구조](#8-모듈-구조)
+9. [실행 방법](#9-실행-방법)
+10. [학습 연계 맵](#10-학습-연계-맵)
+11. [엔지니어링 표준](#11-엔지니어링-표준)
 
 ---
 
@@ -51,7 +52,185 @@
 
 ---
 
-## 2. 시스템 아키텍처
+## 2. 기술 선택 근거
+
+이 챗봇은 **영어 논문 PDF에 한국어로 질문**하는 Cross-Lingual 시나리오를 기본으로 설계된다.
+아래 각 기술 선택은 이 조건과 **로컬 단일 사용자, 무비용, 오프라인** 운용 요건을 동시에 충족하기 위해 결정되었다.
+
+---
+
+### 2-1. LLM: Ollama llama3.2:3b
+
+#### 후보 비교
+
+| 모델 | 비용 | 인터넷 | RAM | 응답 속도 (M-series) | 한국어 지원 |
+|------|------|--------|-----|---------------------|------------|
+| GPT-4o (OpenAI API) | $0.005 / 1K tokens | 필요 | — | ~2s | 우수 |
+| Claude 3.5 Sonnet (API) | $0.003 / 1K tokens | 필요 | — | ~2s | 우수 |
+| llama3.1:8b (Ollama) | 무료 | 불필요 | ~5GB | ~8s (CPU) | 양호 |
+| **llama3.2:3b (Ollama)** | **무료** | **불필요** | **~2GB** | **~3s (CPU)** | **양호** |
+| mistral:7b (Ollama) | 무료 | 불필요 | ~4GB | ~6s (CPU) | 보통 |
+
+#### llama3.2:3b 채택 근거
+
+```text
+제약 조건                    선택 영향
+─────────────────────────    ──────────────────────────────────────────
+비용 없이 반복 실습          API 과금 모델 전부 제외
+논문 내용 외부 유출 방지     클라우드 API 전부 제외 (연구 저작권 문제)
+MacBook 로컬 실행            RAM 2GB 이하 모델로 범위 한정
+질문-응답 지연 최소화        llama3.1:8b 대비 약 2.5배 빠름
+```
+
+Context window 128K tokens로 긴 논문 컨텍스트(검색된 청크 4개 × ~500 tokens)를 충분히 처리한다.
+답변 품질이 GPT-4 계열보다 낮지만, RAG가 관련 청크를 정확히 제공하면 사실 기반 답변은 충분히 가능하다.
+
+> **실측 (predicting_music.pdf 기준):**
+> 논문 저자·핵심 기여·Spotify 피처 목록 등 컨텍스트에 명확히 존재하는 질문 → 정확한 답변
+> 컨텍스트에 없는 정보("limitations", "future work") → "해당 정보를 문서에서 찾을 수 없습니다" (환각 없음)
+
+---
+
+### 2-2. 임베딩 모델: paraphrase-multilingual-MiniLM-L12-v2
+
+#### 후보 비교
+
+| 모델 | 언어 | 파라미터 | 벡터 차원 | RAM | 교차언어 검색 | 비고 |
+|------|------|---------|-----------|-----|--------------|------|
+| `all-MiniLM-L6-v2` | 영어 전용 | 22M | 384 | ~90MB | ❌ | 초기 모델, 교체 대상 |
+| **`paraphrase-multilingual-MiniLM-L12-v2`** | **50+ 언어** | **118M** | **384** | **~470MB** | **✅** | **채택** |
+| `paraphrase-multilingual-mpnet-base-v2` | 50+ 언어 | 278M | 768 | ~1.1GB | ✅ | 품질 높지만 RAM 2.4배 |
+| `intfloat/multilingual-e5-small` | 100+ 언어 | 118M | 384 | ~470MB | ✅ | `query:` 프리픽스 필수 |
+| `intfloat/multilingual-e5-base` | 100+ 언어 | 278M | 768 | ~1.1GB | ✅ | 고품질, 느림 |
+
+#### 교차언어 문제와 해결
+
+초기 `all-MiniLM-L6-v2` 사용 시 발생한 실패 사례:
+
+```text
+[사용자 질문]  "이 논문의 저자는 누구인가?"  (한국어)
+                          │
+                          ▼
+          all-MiniLM-L6-v2로 임베딩
+          한국어 쿼리 벡터 ≠ 영어 문서 벡터   ← 의미 공간 불일치
+          FAISS 유사도 낮음 + BM25 토큰 히트 0
+                          │
+                          ▼
+          LLM이 빈 컨텍스트를 받아 답변 불가
+```
+
+`paraphrase-multilingual-MiniLM-L12-v2`는 **50개 이상 언어의 병렬 코퍼스**(같은 의미의 다국어 문장 쌍)로 학습되어 언어가 달라도 같은 의미의 문장을 가까운 벡터로 매핑한다.
+
+```text
+"이 논문의 저자는 누구인가?" (한국어)  →  [0.21, -0.44, ...]
+"Who are the authors of this paper?"  →  [0.23, -0.41, ...]
+                    두 벡터 간 코사인 유사도: ~0.94  ← FAISS 검색 성공
+```
+
+`paraphrase-multilingual-mpnet-base-v2`보다 RAM이 절반이고 속도가 빠르면서 벡터 차원(384)이 동일하여 FAISS 인덱스 구조 변경 없이 교체 가능했다.
+
+---
+
+### 2-3. 벡터 DB: FAISS
+
+#### 후보 비교
+
+| | **FAISS** | **Chroma** | **Qdrant** | **Pinecone** |
+|---|---|---|---|---|
+| 서버 필요 | 없음 | 없음 | 별도 서버/Docker | 클라우드 |
+| 설치 | `pip install faiss-cpu` | `pip install chromadb` | Docker 또는 바이너리 | API 키 등록 |
+| 저장 방식 | 파일 (`.faiss`, `.pkl`) | SQLite | 서버 프로세스 | 원격 |
+| 검색 속도 (~100 청크) | < 1ms | < 5ms | < 5ms | ~50ms (네트워크) |
+| 메모리 사용 | 최소 | 중간 | 중간 | — |
+| 비용 | 무료 | 무료 | 무료 (셀프호스팅) | 유료 |
+| LangChain 통합 | 완벽 | 완벽 | 완벽 | 완벽 |
+
+#### FAISS 채택 근거
+
+```text
+Chroma를 선택하지 않은 이유
+  → SQLite 기반으로 컬렉션 관리·필터링 기능이 풍부하지만
+    논문 1편 Q&A에는 불필요한 복잡성
+  → 메모리 사용량이 FAISS 대비 높음
+
+Qdrant를 선택하지 않은 이유
+  → 별도 서버(`docker run qdrant/qdrant`)가 필요해
+    `rag-app` 한 줄 실행 목표에 맞지 않음
+  → 수백만 벡터 규모에서 진가를 발휘, 논문 1편은 오버스펙
+
+FAISS를 선택한 이유
+  → 추가 프로세스 없이 Python 내에서 완결
+  → 논문 1편 (~100 청크) 검색: 1ms 미만 (규모 차이 체감 없음)
+  → save_local / load_local 두 줄로 디스크 캐싱 구현 가능
+  → Apple Silicon(M-series) CPU에서 별도 설정 없이 동작
+```
+
+#### 현재 적용된 성능 최적화
+
+```text
+최초 로딩 (변경 전)                 최초 로딩 (변경 후)
+──────────────────────────          ──────────────────────────
+임베딩 모델 로드  ~15s              임베딩 모델 로드  ~15s  (최초 1회)
+FAISS 빌드       ~15s              FAISS 빌드       ~15s  (최초 1회)
+BM25 빌드         ~1s              BM25 빌드         ~1s
+합계              ~31s             합계              ~31s
+
+두 번째 이후 (변경 전)              두 번째 이후 (변경 후)
+──────────────────────────          ──────────────────────────
+임베딩 모델 로드  ~15s              임베딩 모델 로드   0s  (st.cache_resource)
+FAISS 빌드       ~15s              FAISS 로드        ~1s  (load_local)
+BM25 빌드         ~1s              BM25 빌드         ~1s
+합계              ~31s             합계               ~2s  ← 93% 단축
+```
+
+두 가지 개선이 적용되었다:
+
+1. **임베딩 모델 캐싱** (`st.cache_resource`): Streamlit 프로세스 수명 동안 모델을 메모리에 고정.
+   PDF가 바뀌어도 모델 재로딩 없이 즉시 재사용.
+
+2. **FAISS 인덱스 디스크 캐싱** (`save_local` / `load_local`): PDF 내용의 MD5 해시를 캐시 키로 사용.
+   앱 재시작 후에도 동일 PDF의 인덱스를 `04_mini_project/.cache/<hash>/`에서 즉시 로드.
+
+---
+
+### 2-4. 검색 전략: BM25 + FAISS Ensemble (Hybrid Retrieval)
+
+#### 후보 비교
+
+| 전략 | 키워드 검색 | 의미 검색 | 후속 질문 처리 | 이 프로젝트 적합성 |
+|------|------------|----------|--------------|------------------|
+| 순수 FAISS (벡터만) | ❌ 약함 | ✅ 강함 | 별도 처리 필요 | 수치·용어 질문에서 실패 |
+| 순수 BM25 (키워드만) | ✅ 강함 | ❌ 약함 | 별도 처리 필요 | 의미 질문에서 실패 |
+| MultiQueryRetriever | ✅ | ✅ | ✅ | LLM 호출 추가로 느림 |
+| **BM25 + FAISS Ensemble** | **✅ 강함** | **✅ 강함** | **✅ (History-Aware)** | **채택** |
+
+논문 Q&A에는 두 종류의 질문이 공존한다:
+
+```text
+유형 A — 키워드 중심 (BM25 유리)      유형 B — 의미 중심 (FAISS 유리)
+────────────────────────────────       ─────────────────────────────────
+"F1 Score 0.9779이 맞나?"              "이 연구의 한계는 무엇인가?"
+"Spotify 피처 목록은?"                 "저자들이 제안한 방향은?"
+"표 3의 정확도 수치는?"                "모델이 잘 동작하는 이유는?"
+```
+
+BM25만 사용하면 유형 B에서 토큰 히트가 0이 되고, FAISS만 사용하면 유형 A에서 정확한 수치를 포함한 청크를 놓친다.
+Ensemble은 두 결과를 **RRF(Reciprocal Rank Fusion)** 알고리즘으로 합산한다:
+
+```text
+RRF score = Σ 1 / (k + rank_i)   (k=60, 기본값)
+
+예시: 청크 X가
+  BM25 결과에서 1위 → 1/(60+1) = 0.0164
+  FAISS 결과에서 2위 → 1/(60+2) = 0.0161
+  RRF 합산 score    = 0.0325   ← 두 방식 모두에서 상위권인 청크가 최종 선택
+```
+
+가중치는 `[0.5, 0.5]`로 균등 설정했다. 논문 Q&A는 두 질문 유형의 비율이 비슷하기 때문이다.
+
+---
+
+## 3. 시스템 아키텍처
 
 ### 전체 아키텍처 (2-Stage)
 
@@ -162,7 +341,7 @@
 
 ---
 
-## 3. Stage 1 — Streamlit RAG 챗봇
+## 4. Stage 1 — Streamlit RAG 챗봇
 
 ### Stage 1 목표
 
@@ -225,7 +404,7 @@ if st.session_state.get("pdf_name") != uploaded_file.name:
 
 ---
 
-## 4. Stage 2 — macOS 논문 뷰어 연동
+## 5. Stage 2 — macOS 논문 뷰어 연동
 
 ### Stage 2 목표
 
@@ -297,7 +476,7 @@ class PaperChatApp(rumps.App):
 
 ---
 
-## 5. 기술 스택
+## 6. 기술 스택
 
 ```text
 Application Layer
@@ -316,7 +495,7 @@ RAG Engine
 │   ├── FAISS              — 벡터 검색
 │   └── ChatMessageHistory — 대화 저장
 └── LangChain HuggingFace
-    └── HuggingFaceEmbeddings (all-MiniLM-L6-v2)
+    └── HuggingFaceEmbeddings (paraphrase-multilingual-MiniLM-L12-v2)
 
 LLM
 └── Ollama (llama3.2:3b)   — 로컬 LLM (무료, 오프라인)
@@ -338,7 +517,7 @@ macOS Integration (Stage 2)
 
 ---
 
-## 6. RAG 파이프라인 설계
+## 7. RAG 파이프라인 설계
 
 ### 하이브리드 검색 선택 이유
 
@@ -396,6 +575,88 @@ ensemble = EnsembleRetriever(
 )
 ```
 
+### 임베딩 모델 선정: paraphrase-multilingual-MiniLM-L12-v2
+
+#### 문제 배경
+
+이 챗봇은 **영어 PDF에 한국어로 질문**하는 교차 언어(Cross-Lingual) 시나리오를 기본으로 사용한다.
+초기에 사용한 `all-MiniLM-L6-v2`는 영어 전용 모델로 이 시나리오에서 다음과 같은 문제가 발생했다:
+
+```text
+[사용자]  "이 논문의 저자는 누구인가?" (한국어)
+               │
+               ▼
+     all-MiniLM-L6-v2로 벡터화
+     한국어 쿼리 벡터 ≠ 영어 문서 벡터   ← 의미 공간 불일치
+               │
+               ▼
+     FAISS 유사도 낮음 + BM25 토큰 히트 0
+               │
+               ▼
+     LLM이 빈/무관한 컨텍스트를 받음
+               │
+               ▼
+     "해당 정보를 문서에서 찾을 수 없습니다."   ← 실제로는 존재하는 정보
+```
+
+#### 모델 비교표
+
+| 모델 | 언어 | 레이어 | 벡터 차원 | 크기 | 교차언어 검색 | 선택 이유 |
+|------|------|--------|-----------|------|--------------|-----------|
+| `all-MiniLM-L6-v2` | 영어 전용 | 6 | 384 | 22M | ❌ | 기존 모델 (교체 대상) |
+| **`paraphrase-multilingual-MiniLM-L12-v2`** | **50+ 언어** | **12** | **384** | **118M** | **✅** | **채택** |
+| `paraphrase-multilingual-mpnet-base-v2` | 50+ 언어 | 12 | 768 | 279M | ✅ | 품질 더 높지만 메모리 2배 |
+| `intfloat/multilingual-e5-small` | 100+ 언어 | 12 | 384 | 118M | ✅ | 검색 특화, 하지만 `query:` 프리픽스 필요 |
+| `intfloat/multilingual-e5-base` | 100+ 언어 | 12 | 768 | 278M | ✅ | 고품질, 하지만 느림 |
+
+#### 채택 근거
+
+```text
+핵심 요구사항: 한국어 질문 ↔ 영어 문서 벡터 매칭
+
+paraphrase-multilingual-MiniLM-L12-v2를 선택한 이유:
+
+1. 공유 언어 공간 (Shared Embedding Space)
+   같은 의미의 문장은 언어가 달라도 유사한 벡터로 매핑된다.
+   "이 논문의 저자는?" ≈ "Who are the authors of this paper?"
+   → 두 벡터가 가깝게 위치하므로 FAISS 유사도 검색 정상 작동
+
+2. 벡터 차원 유지 (384-dim)
+   all-MiniLM-L6-v2와 동일한 384차원 → FAISS 인덱스 구조 변경 불필요
+
+3. 로컬 실행 가능한 크기 (118M)
+   paraphrase-multilingual-mpnet-base-v2(279M) 대비 절반 크기,
+   CPU 환경에서 인덱싱 속도 실용적
+
+4. 프리픽스 불필요
+   multilingual-e5 계열은 "query: " / "passage: " 프리픽스를 붙여야
+   성능이 나오는 추가 처리가 필요하다.
+   paraphrase 계열은 추가 처리 없이 텍스트 그대로 사용 가능
+   → 기존 코드 인터페이스 변경 최소화
+
+5. paraphrase 학습 방식
+   병렬 코퍼스(같은 뜻의 다국어 문장 쌍)로 학습되어
+   cross-lingual semantic similarity에 특화됨
+```
+
+#### 교체 후 예상 동작
+
+```text
+[사용자]  "이 논문의 저자는 누구인가?" (한국어)
+               │
+               ▼
+     paraphrase-multilingual-MiniLM-L12-v2로 벡터화
+     한국어 쿼리 벡터 ≈ 영어 "authors" 관련 청크 벡터   ← 공유 공간
+               │
+               ▼
+     FAISS 유사도 충분히 높음 → 관련 청크 검색 성공
+               │
+               ▼
+     LLM이 저자 정보가 담긴 컨텍스트를 받아 정확히 답변
+```
+
+---
+
 ### RAG 품질 평가 (Ragas)
 
 "답변이 그럴듯하다"는 주관적 판단 대신, Phase 3에서 Ragas로 정량적 검증한다.
@@ -424,7 +685,7 @@ ensemble = EnsembleRetriever(
 
 ---
 
-## 7. 모듈 구조
+## 8. 모듈 구조
 
 ```text
 04_mini_project/
@@ -474,7 +735,7 @@ chatbot = PDFChatbot("/path/to/paper.pdf")  # 로컬 파일 경로
 
 ---
 
-## 8. 실행 방법
+## 9. 실행 방법
 
 ### Stage 1 실행
 
@@ -510,7 +771,7 @@ Streamlit 실행 터미널에서 실시간 확인:
 
 ---
 
-## 9. 학습 연계 맵
+## 10. 학습 연계 맵
 
 이 프로젝트에서 사용하는 기술과 학습 모듈의 연결:
 
@@ -520,7 +781,7 @@ Streamlit 실행 터미널에서 실시간 확인:
 
 02_rag_pipeline
   ├─ PyPDFLoader, RecursiveCharacterTextSplitter  → PDF 전처리
-  ├─ HuggingFaceEmbeddings (all-MiniLM-L6-v2)    → 벡터 생성
+  ├─ HuggingFaceEmbeddings (paraphrase-multilingual-MiniLM-L12-v2)    → 벡터 생성
   └─ FAISS.from_documents()                       → 벡터 인덱싱
 
 03_retriever_chain/01 — Retriever 전략
@@ -568,7 +829,7 @@ Phase 5  메뉴바 앱 고도화 (선택)
 
 ---
 
-## 10. 엔지니어링 표준
+## 11. 엔지니어링 표준
 
 학습 단계지만 프로덕션 수준의 코드 습관을 실천한다.
 
