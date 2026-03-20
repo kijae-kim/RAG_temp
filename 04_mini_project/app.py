@@ -20,6 +20,7 @@ from typing import Final
 
 import streamlit as st
 from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # streamlit run 실행 시 스크립트 디렉터리가 sys.path에 추가되므로 상대 임포트 사용
 from rag_engine import (
@@ -27,6 +28,7 @@ from rag_engine import (
     LLMConnectionError,
     PDFChatbot,
     PDFLoadError,
+    RAGConfig,
 )
 
 # =============================================================================
@@ -35,7 +37,8 @@ from rag_engine import (
 
 APP_TITLE: Final = "PDF Q&A 챗봇"
 CHAT_PLACEHOLDER: Final = "논문에 대해 무엇이든 질문하세요..."
-INDEXING_SPINNER: Final = "PDF 인덱싱 중... 처음 실행 시 약 15~30초가 소요됩니다."
+MODEL_LOADING_MSG: Final = "임베딩 모델 로딩 중... (최초 1회, 약 10~20초 소요)"
+INDEXING_SPINNER: Final = "PDF 인덱싱 중..."
 
 # =============================================================================
 # 페이지 설정 — 반드시 다른 st 호출보다 먼저 실행되어야 한다
@@ -47,6 +50,31 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# =============================================================================
+# 임베딩 모델 캐싱 — 프로세스 전체에서 1회만 로드
+# =============================================================================
+
+
+@st.cache_resource(show_spinner=False)
+def _load_embeddings() -> HuggingFaceEmbeddings:
+    """임베딩 모델을 로드한다. st.cache_resource로 프로세스 수명 동안 1회만 실행된다."""
+    config = RAGConfig()
+    return HuggingFaceEmbeddings(
+        model_name=config.embedding_model,
+        model_kwargs={"device": "cpu"},
+    )
+
+
+def _get_embeddings() -> HuggingFaceEmbeddings:
+    """임베딩 모델을 반환한다. 최초 호출 시 로딩 스피너를 표시한다."""
+    if not st.session_state.get("model_ready"):
+        with st.spinner(MODEL_LOADING_MSG):
+            embeddings = _load_embeddings()
+        st.session_state.model_ready = True
+        return embeddings
+    return _load_embeddings()
+
 
 # =============================================================================
 # 세션 상태 초기화
@@ -82,7 +110,7 @@ def _load_pdf_from_path(pdf_path: str) -> None:
 
     with st.spinner(INDEXING_SPINNER):
         try:
-            st.session_state.chatbot = PDFChatbot(pdf_path)
+            st.session_state.chatbot = PDFChatbot(pdf_path, embeddings=_get_embeddings())
             st.session_state.pdf_name = path.name
             st.session_state.messages = []
         except (PDFLoadError, IndexBuildError) as exc:
@@ -102,7 +130,7 @@ def _load_pdf_from_upload(uploaded_file: object) -> None:
 
     with st.spinner(INDEXING_SPINNER):
         try:
-            st.session_state.chatbot = PDFChatbot(uploaded_file)
+            st.session_state.chatbot = PDFChatbot(uploaded_file, embeddings=_get_embeddings())
             st.session_state.pdf_name = uploaded_file.name
             st.session_state.messages = []
             # 새 PDF에는 새로운 대화 세션을 부여해 이전 히스토리가 섞이지 않도록 한다
@@ -274,6 +302,9 @@ def _render_welcome() -> None:
 
 def main() -> None:
     _init_session_state()
+
+    # 앱 시작 시 임베딩 모델을 미리 로드 (최초 1회만 스피너 표시)
+    _get_embeddings()
 
     # Stage 2: PDF_PATH 환경변수가 설정된 경우 파일 업로더 없이 자동 로딩
     stage2_path: str | None = os.environ.get("PDF_PATH")
