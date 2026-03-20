@@ -17,12 +17,16 @@ PDF Q&A 핵심 RAG 파이프라인 모듈.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Generator, Never, Union
+
+# FAISS 캐시 기본 위치: rag_engine.py 옆 .cache/ 디렉터리
+_DEFAULT_CACHE_DIR = Path(__file__).parent / ".cache"
 
 from dotenv import load_dotenv
 from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
@@ -60,10 +64,12 @@ class RAGConfig:
     # MMR 다양성 계수: 0.0 = 다양성 최대, 1.0 = 관련성만 추구
     faiss_lambda_mult: float = 0.6
     ensemble_weights: list[float] = field(default_factory=lambda: [0.5, 0.5])
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     llm_model: str = "llama3.2:3b"
     # 사실 기반 답변이 목적이므로 temperature는 낮게 설정
     llm_temperature: float = 0.0
+    # FAISS 인덱스 디스크 캐시 위치
+    cache_dir: Path = field(default_factory=lambda: _DEFAULT_CACHE_DIR)
 
 
 # =============================================================================
@@ -142,8 +148,10 @@ class PDFChatbot:
         self,
         pdf_source: PDFSource,
         config: RAGConfig | None = None,
+        embeddings: HuggingFaceEmbeddings | None = None,
     ) -> None:
         self._config = config or RAGConfig()
+        self._embeddings = embeddings  # 외부에서 주입된 캐시 모델 (없으면 내부에서 새로 로드)
         self._session_store: dict[str, ChatMessageHistory] = {}
         self._temp_path: Path | None = None
         self._last_sources: list[Document] = []
@@ -152,7 +160,7 @@ class PDFChatbot:
         pdf_path = self._resolve_pdf_path(pdf_source)
         try:
             docs = self._load_and_split(pdf_path)
-            retriever = self._build_index(docs)
+            retriever = self._build_index(docs, pdf_path)
             self._chain = self._build_chain(retriever)
         except Exception:
             self._cleanup_temp()
@@ -337,7 +345,7 @@ class PDFChatbot:
         }
         return docs
 
-    def _build_index(self, docs: list[Document]) -> EnsembleRetriever:
+    def _build_index(self, docs: list[Document], pdf_path: Path) -> EnsembleRetriever:
         if not docs:
             raise IndexBuildError("인덱싱할 문서가 없습니다.")
 
@@ -345,12 +353,13 @@ class PDFChatbot:
         bm25 = BM25Retriever.from_documents(docs, k=self._config.retriever_k)
         _logger.info("BM25 인덱싱 완료")
 
-        _logger.info("FAISS 인덱싱 중...")
-        embeddings = HuggingFaceEmbeddings(
+        embeddings = self._embeddings or HuggingFaceEmbeddings(
             model_name=self._config.embedding_model,
             model_kwargs={"device": "cpu"},
         )
-        faiss_retriever = FAISS.from_documents(docs, embeddings).as_retriever(
+        faiss_db = self._load_or_build_faiss(docs, embeddings, pdf_path)
+
+        faiss_retriever = faiss_db.as_retriever(
             search_type="mmr",
             search_kwargs={
                 "k": self._config.retriever_k,
@@ -358,12 +367,39 @@ class PDFChatbot:
                 "lambda_mult": self._config.faiss_lambda_mult,
             },
         )
-        _logger.info("FAISS 인덱싱 완료")
 
         return EnsembleRetriever(
             retrievers=[bm25, faiss_retriever],
             weights=self._config.ensemble_weights,
         )
+
+    def _load_or_build_faiss(
+        self,
+        docs: list[Document],
+        embeddings: HuggingFaceEmbeddings,
+        pdf_path: Path,
+    ) -> FAISS:
+        """FAISS 인덱스를 디스크 캐시에서 로드하거나 새로 빌드 후 저장한다.
+
+        캐시 키: PDF 파일 내용의 MD5 해시 (파일명이 같아도 내용이 다르면 재빌드).
+        """
+        pdf_hash = hashlib.md5(pdf_path.read_bytes()).hexdigest()[:12]
+        cache_path = self._config.cache_dir / pdf_hash
+
+        if (cache_path / "index.faiss").exists():
+            _logger.info("FAISS 캐시 로드: %s", cache_path)
+            return FAISS.load_local(
+                str(cache_path),
+                embeddings,
+                allow_dangerous_deserialization=True,
+            )
+
+        _logger.info("FAISS 인덱싱 중...")
+        faiss_db = FAISS.from_documents(docs, embeddings)
+        cache_path.mkdir(parents=True, exist_ok=True)
+        faiss_db.save_local(str(cache_path))
+        _logger.info("FAISS 인덱싱 완료 → 캐시 저장: %s", cache_path)
+        return faiss_db
 
     def _build_chain(self, retriever: EnsembleRetriever) -> RunnableWithMessageHistory:
         llm = ChatOllama(
