@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>논문 AI 챗봇</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 헤더: 드래그 핸들 + 탭 -->
+  <header class="header">
+    <span class="header-title">🤖 논문 AI 챗봇</span>
+    <div class="header-right">
+      <div class="tabs">
+        <button class="tab active" id="tab-chat" onclick="switchTab('chat')">채팅</button>
+        <button class="tab" id="tab-analysis" onclick="switchTab('analysis')">분석</button>
+      </div>
+      <button class="btn-close" onclick="closeWindow()" title="닫기">✕</button>
+    </div>
+  </header>
+
+  <!-- 논문 배너 -->
+  <div class="paper-banner" id="paper-banner">
+    <span id="banner-text">논문을 선택해주세요</span>
+  </div>
+
+  <!-- 상태 배너 (모델 로딩, 오류 등) -->
+  <div class="status-banner hidden" id="status-banner">
+    <span id="status-banner-text"></span>
+  </div>
+
+  <!-- 채팅 탭 -->
+  <div class="tab-content" id="pane-chat">
+    <div class="chat-area" id="chat-area"></div>
+    <div class="input-area">
+      <textarea
+        id="question-input"
+        placeholder="질문을 입력하세요... (Shift+Enter로 줄바꿈)"
+        rows="3"
+      ></textarea>
+      <div class="input-actions">
+        <button class="btn-send" id="btn-send" onclick="sendMessage()">전송</button>
+        <button class="btn-clear" onclick="clearSession()">초기화</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 분석 탭 -->
+  <div class="tab-content hidden" id="pane-analysis">
+    <!-- 진행률 바 -->
+    <div class="analysis-progress-wrap">
+      <div class="analysis-progress-bar">
+        <div class="analysis-progress-fill" id="analysis-progress" style="width:0%"></div>
+      </div>
+      <span class="analysis-progress-text" id="analysis-progress-text">논문을 선택하면 자동으로 분석됩니다.</span>
+    </div>
+
+    <!-- 요약 -->
+    <div class="analysis-section hidden" id="analysis-summary">
+      <h3 class="analysis-title">📋 논문 요약</h3>
+      <p class="analysis-text" id="summary-text"></p>
+    </div>
+
+    <!-- 핵심 개념 -->
+    <div class="analysis-section hidden" id="analysis-concepts">
+      <h3 class="analysis-title">🏷️ 핵심 개념</h3>
+      <div class="concepts-container" id="concepts-tags"></div>
+    </div>
+  </div>
+
+  <script src="chat.js"></script>
+  <script src="analysis.js"></script>
+</body>
+</html>
