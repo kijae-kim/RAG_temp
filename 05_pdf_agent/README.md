@@ -170,18 +170,25 @@ macOS에서 `rumps`와 `pywebview` 모두 메인 스레드(NSRunLoop)를 요구�
 ```text
 [메뉴] "논문 선택..."
   → NSOpenPanel (PDF 선택)
-  → POST /api/load {"path": "..."}
-  → PDFChatbot 초기화
+  → POST /api/load {"path": "..."}      ← 202 즉시 반환, 백그라운드 인덱싱 시작
+  → PDFChatbot 초기화 (백그라운드 스레드)
       ├─ FAISS 캐시 히트: ~1초 로드
       └─ 캐시 없음:  ~30초 인덱싱
-  → GET /api/status 폴링 → {"status": "ready"}
+
+  [채팅 창 JS] GET /api/status 폴링 (1초 간격)
+    → {"status": "loading", "loading_pct": 60}  ← 배너에 진행률 표시
+    → {"status": "ready"}                       ← 인덱싱 완료 감지
+    → 자동으로 POST /api/analyze SSE 연결        ← analyze_node 트리거 (클라이언트 주도)
+    → 분석 탭에 진행률 + 요약 + 개념 태그 렌더링
 
 [사용자] "BM25가 뭐야?" 입력
   → POST /api/chat SSE 스트리밍
-  → LangGraph Router → explain_node
-  → stream_chat() Generator → SSE
-      data: {"type":"token", "content":"B"}
-      data: {"type":"token", "content":"M25는 "}
+  → (Phase 1) stream_chat() Generator → SSE 직접 스트리밍
+  → (Phase 2) LangGraph.classify_intent() 동기 실행 → "explain" 의도 반환
+              API 레이어에서 stream_explain() 직접 호출 → SSE 스트리밍
+      data: {"type":"intent_classifying"}
+      data: {"type":"intent",  "content":"explain"}
+      data: {"type":"token",   "content":"BM25는 "}
       ...
       data: {"type":"sources", "content":[{"page":3,...}]}
       data: {"type":"done"}
@@ -345,19 +352,32 @@ def calculate_window_position(prefs: dict) -> tuple[int, int]:
 
 **창 이동 시 위치 자동 저장**
 
-pywebview에서 창 이동을 감지하는 직접 이벤트는 없으므로, JS가 주기적으로 위치를 읽어 Python에 전달한다.
+> ⚠️ 설계 결정: `window.screenX/Y`는 WKWebView에서 OS 창 위치가 아닌 웹페이지 내 뷰포트 좌표를 반환한다.
+> JS → Python 왕복 없이 **Python 백그라운드 스레드**에서 pywebview Window 객체의 `.x`, `.y` 속성을 직접 읽는 방식으로 구현한다.
 
-```javascript
-// ui/chat.js — 1초마다 위치 변경 감지 → Python에 저장
-let lastX = null, lastY = null;
-setInterval(async () => {
-    // pywebview JS API: window.screenX, window.screenY는 pywebview가 주입
-    const x = window.screenX, y = window.screenY;
-    if (x !== lastX || y !== lastY) {
-        lastX = x; lastY = y;
-        await window.pywebview.api.save_window_position(x, y);
-    }
-}, 1000);
+```python
+# webview_process.py — Python 측에서 창 위치 폴링 (JS 불필요)
+import threading, time
+
+def _watch_position(window, prefs_path: str) -> None:
+    """1초마다 창 위치를 확인해 변경 시 preferences.json에 저장."""
+    last: tuple | None = None
+    while True:
+        pos = (window.x, window.y)   # pywebview Window 속성 (OS 창 좌표)
+        if pos != last:
+            prefs = load_preferences(prefs_path)
+            prefs["window_x"], prefs["window_y"] = pos
+            save_preferences(prefs_path, prefs)
+            last = pos
+        time.sleep(1)
+
+# webview.start() 콜백 안에서 시작 (window 객체 생성 완료 후)
+def on_shown():
+    threading.Thread(
+        target=_watch_position,
+        args=(window, PREFS_PATH),
+        daemon=True,
+    ).start()
 ```
 
 ### 4-3. 분석 탭 (Phase 2)
@@ -408,7 +428,8 @@ setInterval(async () => {
 ```text
 Method  Endpoint             스트리밍   설명
 ──────  ───────────────────  ─────────  ─────────────────────────────
-GET     /api/status          No         서버·엔진 상태 조회
+GET     /api/status          No         서버·엔진 상태 조회 (폴링용)
+GET     /api/events          Yes (SSE)  상태 변경 push 전용 채널 ← 신규
 POST    /api/load            No         PDF 로드 및 인덱싱 트리거
 GET     /api/doc-info        No         현재 문서 메타데이터
 POST    /api/chat            Yes (SSE)  질문 → 스트리밍 답변
@@ -421,6 +442,7 @@ GET     /api/recent-papers   No         최근 논문 목록 (최대 5개)
 ### 5-2. 주요 엔드포인트 상세
 
 **GET /api/status**
+
 ```json
 // Response 200
 {
@@ -431,14 +453,52 @@ GET     /api/recent-papers   No         최근 논문 목록 (최대 5개)
 }
 ```
 
+**GET /api/events** — SSE push 전용 채널 (Process 1 → Process 2 단방향 통신)
+
+```text
+// 채팅 창 JS가 앱 시작 시 1회 연결, 서버가 상태 변경 시 push
+// 다수 PDF 교체 시에도 즉각 반응 (폴링 지연 없음)
+
+// Response: text/event-stream
+data: {"type": "paper_changed",  "paper_name": "attention.pdf", "status": "loading"}
+data: {"type": "loading_progress","pct": 60}
+data: {"type": "paper_ready",    "paper_name": "attention.pdf", "chunks": 94}
+data: {"type": "ollama_error",   "msg": "Ollama 서버에 연결할 수 없습니다."}
+
+// 서버 구현: asyncio.Queue로 이벤트 브로드캐스트
+// engine_state.py가 상태 변경 시 Queue에 push
+// /api/events SSE 핸들러가 Queue를 소비하여 클라이언트에 전송
+```
+
+```python
+# api/routes/events.py
+import asyncio
+from fastapi.responses import StreamingResponse
+
+_event_queue: asyncio.Queue = asyncio.Queue()
+
+def push_event(event: dict) -> None:
+    """engine_state.py에서 호출 — 상태 변경 시 채팅 창에 push."""
+    asyncio.get_event_loop().call_soon_threadsafe(_event_queue.put_nowait, event)
+
+@router.get("/api/events")
+async def event_stream():
+    async def generate():
+        while True:
+            event = await _event_queue.get()
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    return StreamingResponse(generate(), media_type="text/event-stream")
+```
+
 **POST /api/load**
+
 ```json
 // Request
 {"path": "/Users/.../predicting_music.pdf"}
 
 // Response 202
 {"accepted": true, "cached": true, "msg": "캐시에서 즉시 로드"}
-// 실제 인덱싱은 백그라운드에서 진행, GET /api/status로 진행 상태 확인
+// 인덱싱 진행 상황은 GET /api/events SSE로 push (폴링 불필요)
 ```
 
 **POST /api/chat** — SSE 스트리밍
@@ -538,15 +598,54 @@ async function sendMessage(question) {
 
 ### 6-3. FastAPI SSE 구현 패턴
 
+> ⚠️ 설계 결정: LangGraph 노드는 `state dict`를 반환하므로 토큰 Generator를 직접 반환할 수 없다.
+> **LangGraph = 의도 라우터 (동기, 빠름)** / **스트리밍 = API 레이어에서 직접 처리** 로 역할을 분리한다.
+>
+> - `/api/chat` (Phase 1): LangGraph 없이 `stream_chat()` 직접 호출
+> - `/api/chat` (Phase 2): LangGraph로 의도 분류 후 API 레이어에서 스트리밍 함수 선택
+> - `/api/analyze` (Phase 2): LangGraph `.stream(stream_mode="updates")`로 노드 진행 이벤트 SSE 전송
+
 ```python
 # api/routes/chat.py
-from fastapi.responses import StreamingResponse
 
+# ── Phase 1: LangGraph 없이 직접 스트리밍 ──────────────────────────────────
 @router.post("/api/chat")
 async def chat_stream(req: ChatRequest):
     def generate():
-        chatbot = get_chatbot()   # 싱글톤에서 가져오기
+        chatbot = get_chatbot()
         for token in chatbot.stream_chat(req.question, req.session_id):
+            yield f'data: {{"type":"token","content":{json.dumps(token)}}}\n\n'
+        sources = chatbot.last_sources
+        yield f'data: {{"type":"sources","content":{serialize_sources(sources)}}}\n\n'
+        yield 'data: {"type":"done","content":null}\n\n'
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── Phase 2: LangGraph 라우터 → API 레이어에서 스트리밍 ──────────────────────
+# LangGraph의 역할: 의도 분류만 담당 (동기 실행, 1~2초)
+# 스트리밍 실행: API 레이어가 의도에 맞는 함수를 직접 호출
+
+STREAM_FN_MAP = {
+    "qa":        lambda chatbot, q, sid: chatbot.stream_chat(q, sid),
+    "explain":   lambda chatbot, q, sid: chatbot.stream_explain(q, sid),
+    "quiz":      lambda chatbot, q, sid: chatbot.stream_quiz(q, sid),
+    "summarize": lambda chatbot, q, sid: chatbot.stream_summarize(q, sid),
+}
+
+@router.post("/api/chat")
+async def chat_stream_v2(req: ChatRequest):
+    def generate():
+        chatbot = get_chatbot()
+
+        # Step 1: 의도 분류 (LangGraph 동기 실행)
+        yield 'data: {"type":"intent_classifying"}\n\n'
+        intent = paper_agent.classify_intent(req.question)   # "qa"|"explain"|"quiz"|"summarize"
+        yield f'data: {{"type":"intent","content":"{intent}"}}\n\n'
+
+        # Step 2: 의도에 맞는 스트리밍 함수 직접 호출
+        stream_fn = STREAM_FN_MAP.get(intent, STREAM_FN_MAP["qa"])
+        for token in stream_fn(chatbot, req.question, req.session_id):
             yield f'data: {{"type":"token","content":{json.dumps(token)}}}\n\n'
 
         sources = chatbot.last_sources
@@ -567,11 +666,8 @@ class WebviewBridge:
         """Finder에서 파일 위치 열기."""
         subprocess.Popen(["open", "-R", path])
 
-    def save_window_position(self, x: int, y: int) -> None:
-        """창 위치를 preferences.json에 저장 (다음 열기 시 PDF 뷰어가 없으면 복원)."""
-        prefs = load_preferences()
-        prefs["window_x"], prefs["window_y"] = x, y
-        save_preferences(prefs)
+    # save_window_position: JS Bridge 불필요.
+    # Python 백그라운드 스레드(_watch_position)가 window.x/y를 직접 읽어 저장. (4-2a 참고)
 
     def is_ollama_running(self) -> bool:
         """Ollama 상태 즉시 확인 (UI 배너용)."""
@@ -623,11 +719,13 @@ app.add_middleware(
 
 완료 기준:
   ✅ 메뉴바 아이콘 클릭 → 채팅 창 팝업 (420×700, 우하단, 항상 위)
-  ✅ "논문 선택..." → NSOpenPanel → PDF 로드 → 채팅 창 상태 업데이트
+  ✅ "논문 선택..." → NSOpenPanel → PDF 로드 → /api/events push → 채팅 창 즉시 업데이트
   ✅ 질문 → SSE 스트리밍 타이핑 애니메이션 → 출처 카드
   ✅ Ollama 미실행 시 에러 배너 자동 표시
-  ✅ 04_mini_project FAISS 캐시 공유 (재인덱싱 없음)
+  ✅ HuggingFace 캐시 없을 때 "임베딩 모델 로딩 중..." 배너 → 완료 시 자동 해제
+  ✅ 04_mini_project FAISS 캐시 공유 (재인덱싱 없음, 경로 자동 감지)
   ✅ 동일 PDF 재선택 시 즉시 로드 (~1초)
+  ✅ 앱 중복 실행 방지 (포트 점유 확인)
 ```
 
 ### Phase 2 — LangGraph Agent 통합
@@ -642,20 +740,39 @@ app.add_middleware(
   api/routes/agent.py    ← /api/analyze SSE
   ui/analysis.js         ← 분석 탭 (진행률 바, 개념 태그)
 
-LangGraph 노드:
-  analyze_node   → PDF 로드 후 자동 1회 실행 (요약 + 개념 추출)
-  router_node    → 의도 분류 (qa / explain / quiz / summarize)
-  rag_node       → PDFChatbot.chat() 위임
-  explain_node   → explain_concept() 호출
-  quiz_node      → generate_quiz() 반환
-  summarize_node → summarize_paper() 호출
-  session_save   → sessions/{hash}.json 자동 업데이트
+언어 정책 (설계 결정):
+  agent/tools.py 모든 프롬프트 끝에 한국어 지시 통일
+    summarize  → "논문을 한국어로 요약하세요."
+    explain    → "개념을 한국어로 단계적으로 설명하세요."
+    quiz       → "문제와 선택지를 한국어로 작성하세요."
+    extract    → "핵심 개념을 한국어 명사로 추출하세요."
+  단, 개념 태그(BM25, FAISS 등)는 영어 원문 유지 (논문 인용 실용성)
+
+LangGraph 역할 분리 (설계 결정):
+  /api/chat  에서의 LangGraph: 의도 분류만 담당 (동기, ~1~2초)
+    router_node → "qa"|"explain"|"quiz"|"summarize" 반환
+    → API 레이어가 반환값으로 스트리밍 함수 직접 선택 (LangGraph 밖에서 스트리밍)
+
+  /api/analyze 에서의 LangGraph: 전체 분석 흐름 담당
+    analyze_node → LangGraph .stream(stream_mode="updates")로 노드별 진행 이벤트 SSE 전송
+    summary_node → 논문 요약 (한국어 출력)
+    concept_node → 핵심 개념 추출 (영어 태그, 한국어 설명)
+
+  session_save 노드 크로스 의존 해결 (설계 결정):
+    Phase 2: stub(no-op)으로 선언 → Phase 3: 내부만 교체, LangGraph 그래프 구조 불변
+    def session_save_node(state): return state  # TODO Phase 3
+
+analyze_node 트리거 방식 (설계 결정):
+  서버 자동 실행 아님 → 클라이언트 주도
+  JS가 /api/events의 "paper_ready" 이벤트 수신 시
+  자동으로 POST /api/analyze SSE 연결 → 분석 탭 렌더링
+  (채팅 창이 열려있을 때만 실행 → 리소스 효율)
 
 완료 기준:
-  ✅ PDF 로드 후 30초 내 분석 탭에 요약 + 개념 5개 이상 표시
-  ✅ "BM25 설명해줘" → router가 explain_node 선택 → 단계적 설명
-  ✅ "퀴즈 내줘" → quiz_node → 문제 + 선택지 + 정답 표시
-  ✅ 채팅 창 하단 "🔧 도구: explain_concept" 표시 (투명성)
+  ✅ PDF 인덱싱 완료 → /api/events "paper_ready" → JS 자동으로 /api/analyze 호출 → 30초 내 분석 탭 완성
+  ✅ "BM25 설명해줘" → router_node가 "explain" 반환 → stream_explain() 직접 스트리밍 (한국어)
+  ✅ "퀴즈 내줘" → router_node가 "quiz" 반환 → stream_quiz() 직접 스트리밍 (한국어)
+  ✅ 채팅 창 하단 "🔧 의도: explain" 표시 (투명성, intent SSE 이벤트 활용)
 ```
 
 ### Phase 3 — 학습 세션 저장
@@ -922,8 +1039,48 @@ STUDY_PLAN Day 10-11: LangGraph 기초
 | PDFChatbot 싱글톤 | `engine_state.py`에서 `threading.Lock` 보호 | 동시 요청 시 인덱싱 중복 방지 |
 | SSE 이벤트 포맷 | `{"type": "...", "content": "..."}` | JS 파서 단순화, 이벤트 타입 명시 |
 | 세션 저장 위치 | `~/Library/Application Support/PDFChatbot/` | 앱 업데이트 시 데이터 보존 |
-| FAISS 캐시 공유 | `04_mini_project/.cache/` 경로 공유 | 04에서 인덱싱한 논문 즉시 재사용 |
+| FAISS 캐시 경로 | 자동 감지 (개발: `04_mini_project/.cache/` → 배포: `~/Library/.../.cache/`) | 환경변수 없이 투명한 전환, 04 캐시 재사용 유지 |
+| 메뉴바→채팅 창 통신 | `GET /api/events` SSE push 전용 채널 | 다수 PDF 교체 시 즉각 반응, 폴링 지연 없음 |
+| 단일 인스턴스 보장 | 시작 시 포트 8765 점유 확인 → 이미 실행 중이면 종료 | 추가 의존성 없이 중복 실행 방지 |
+| LangGraph 역할 | `/api/chat`: 의도 분류만 (동기) / `/api/analyze`: 전체 흐름 담당 | 토큰 Generator와 StateGraph 충돌 회피 |
+| analyze 트리거 | 클라이언트 주도 (`/api/events` paper_ready 이벤트 수신 시 자동 호출) | 채팅 창 열릴 때만 실행, 리소스 효율 |
+| 창 위치 저장 | Python 백그라운드 스레드 `window.x/y` 직접 읽기 | `window.screenX/Y` WKWebView 미지원 우회 |
+| AI 출력 언어 | 모든 응답 한국어 고정, 개념 태그(BM25, FAISS 등)는 영어 원문 유지 | 사용자 언어 일관성 + 논문 인용 실용성 |
+| session_save 크로스 의존 | Phase 2: stub(no-op) 선언 → Phase 3: 내부만 교체 | LangGraph 그래프 구조 불변, 단계적 구현 |
+| 모델 최초 로딩 UX | `/api/events` "model_loading/model_ready" 이벤트로 채팅 창 배너 표시 | HuggingFace 캐시 없을 때 사용자 피드백 |
 | Ollama 전략 | 독립 배포(.dmg) + API 분기 인터페이스 준비 | App Store 확장 가능성 확보 |
+
+### 단일 인스턴스 구현
+
+```python
+# menubar_app.py — 앱 시작 직후 포트 점유 확인
+import socket, sys, subprocess
+
+def _ensure_single_instance(port: int = 8765) -> None:
+    """포트가 이미 점유된 경우 기존 앱을 포커스하고 종료."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    already_running = sock.connect_ex(("localhost", port)) == 0
+    sock.close()
+    if already_running:
+        subprocess.Popen(["open", "-a", "PDFChatbot"])  # 기존 인스턴스 포커스
+        sys.exit(0)
+
+_ensure_single_instance()
+```
+
+### FAISS 캐시 경로 자동 감지
+
+```python
+# api/engine_state.py
+from pathlib import Path
+
+# 개발환경: 04_mini_project/.cache/ 가 존재하면 공유
+_DEV_CACHE = Path(__file__).parent.parent.parent / "04_mini_project" / ".cache"
+_APP_CACHE = Path("~/Library/Application Support/PDFChatbot/.cache").expanduser()
+
+CACHE_DIR: Path = _DEV_CACHE if _DEV_CACHE.exists() else _APP_CACHE
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+```
 
 ### pyproject.toml 추가 항목
 
@@ -942,19 +1099,20 @@ py2app = ">=0.28.0"       # macOS 앱 번들링
 
 ```text
 [Phase 1 구현 순서]
-  1. api/engine_state.py     ← 모든 라우터의 의존점, 최우선
-  2. api/server.py
-  3. api/routes/chat.py
-  4. api/routes/document.py
-  5. ui/ (HTML/CSS/JS)
-  6. webview_process.py
-  7. menubar_app.py          ← 최후 통합
+  1. api/engine_state.py     ← PDFChatbot 싱글톤 + FAISS 경로 자동 감지 + push_event()
+  2. api/server.py           ← FastAPI 앱 + CORS
+  3. api/routes/events.py    ← /api/events SSE push 채널 (메뉴바→채팅 창 통신)
+  4. api/routes/chat.py      ← /api/status + /api/chat SSE
+  5. api/routes/document.py  ← /api/load + /api/doc-info + /api/recent-papers
+  6. ui/ (HTML/CSS/JS)       ← /api/events 구독 + paper_ready 시 /api/analyze 자동 호출
+  7. webview_process.py      ← pywebview 창 + _watch_position 스레드
+  8. menubar_app.py          ← 단일 인스턴스 확인 + rumps + uvicorn 스레드 + subprocess 관리
 
 [Phase 2~3 추가]
-  8. agent/ 전체
-  9. api/routes/agent.py
-  10. session/ 전체
-  11. api/routes/session.py
+  9.  agent/ 전체            ← router_node (동기 분류) + analyze StateGraph
+  10. api/routes/agent.py    ← /api/analyze SSE
+  11. session/ 전체
+  12. api/routes/session.py
 ```
 
 ---
