@@ -82,6 +82,7 @@ class PDFChatbotApp(rumps.App):
         super().__init__("🤖", quit_button=None)
         self._webview_proc: subprocess.Popen | None = None
         self._last_watched_pdf: str = ""   # 감시 폴더 자동 로드 중복 방지
+        self._start_time = __import__("time").time()  # 서버 준비 대기용
 
         # 나중에 title을 바꿔야 하는 항목은 인스턴스 변수로 보관
         self._current_paper_item = rumps.MenuItem("현재 논문: 없음")
@@ -188,7 +189,8 @@ class PDFChatbotApp(rumps.App):
         rumps.quit_application()
 
     # ── PDF 로드 ─────────────────────────────────────────────────────────────
-    def _load_paper(self, pdf_path: str) -> None:
+    def _load_paper(self, pdf_path: str) -> bool:
+        """PDF 로드 요청. 성공(202) 시 True, 실패 시 False 반환."""
         paper_name = Path(pdf_path).name
         try:
             resp = requests.post(
@@ -201,11 +203,13 @@ class PDFChatbotApp(rumps.App):
                 self._current_paper_item.title = f"현재 논문: {paper_name}"
                 self._open_chat()
                 self._build_recent_submenu()
+                return True
             else:
                 detail = resp.json().get("detail", "알 수 없는 오류")
                 rumps.notification("PDF 챗봇", "로드 실패", detail)
-        except requests.RequestException as exc:
-            rumps.notification("PDF 챗봇", "서버 연결 실패", str(exc))
+        except requests.RequestException:
+            pass  # 서버 미준비 상태 — 다음 타이머 틱에서 재시도
+        return False
 
     # ── 감시 폴더: 열린 PDF 파일 감지 ───────────────────────────────────────
     @rumps.timer(3)
@@ -213,7 +217,11 @@ class PDFChatbotApp(rumps.App):
         """
         3초마다 lsof로 감시 폴더 내 열린 PDF를 감지해 자동 로드한다.
         AppleScript 대신 lsof를 사용해 앱 종류에 무관하게 동작.
+        서버 준비 전 15초 이내에는 스킵한다.
         """
+        if __import__("time").time() - self._start_time < 15:
+            return  # 서버 아직 준비 중
+
         prefs = _load_prefs()
         watched = prefs.get("watched_folder", "")
         if not watched:
@@ -234,8 +242,8 @@ class PDFChatbotApp(rumps.App):
                         break
 
             if pdf_path and pdf_path != self._last_watched_pdf:
-                self._last_watched_pdf = pdf_path
-                self._load_paper(pdf_path)
+                if self._load_paper(pdf_path):   # 성공 시에만 중복 방지 플래그 설정
+                    self._last_watched_pdf = pdf_path
         except Exception:
             pass
 
