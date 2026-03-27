@@ -7,7 +7,12 @@
 
 const API = "http://localhost:8765";
 
-let _modelOptions = {};   // { provider: [model, ...] }
+// 서버 응답 전에도 드롭다운이 동작하도록 기본값을 하드코딩
+let _modelOptions = {
+  ollama:    ["qwen2.5:7b", "llama3.2:3b", "gemma3:4b", "phi4-mini"],
+  openai:    ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+  anthropic: ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"],
+};
 let _currentProvider = "ollama";
 
 // ── 초기 로드 ────────────────────────────────────────────────────────────────
@@ -16,7 +21,7 @@ async function loadSettings() {
     const res = await fetch(`${API}/api/settings`);
     const data = await res.json();
 
-    _modelOptions = data.model_options || {};
+    if (data.model_options) _modelOptions = data.model_options;
     _currentProvider = data.provider || "ollama";
 
     _renderProviderBtns(_currentProvider);

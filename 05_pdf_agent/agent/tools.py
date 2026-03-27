@@ -120,16 +120,17 @@ _SCOPE_PROMPT = """You help an AI assistant that answers questions about an acad
 Decide if the AI should attempt to answer this question using the paper.
 
 Say "yes" if the question:
+- Asks about the paper's authors, institution, abstract, title, or publication info (e.g. "저자가 누구야?", "초록 해석해줘")
 - Asks about any academic concept, method, model, term, or result (e.g. "LSTM이 뭐야?", "vanishing gradient란?")
-- Requests a summary, quiz, or explanation of the paper content
+- Requests a summary, quiz, explanation, or translation of the paper content
 - Asks about comparisons or reasons within the paper's topic
 
 Say "no" ONLY if the question:
 - Asks for code implementation (e.g. "PyTorch로 구현해줘", "코드 짜줘")
-- Asks about a clearly unrelated topic (e.g. "오늘 날씨", "주식 추천")
-- Asks personal info not in any paper (e.g. "저자 나이가 몇 살이야?")
+- Asks about a completely unrelated topic with no connection to the paper (e.g. "오늘 날씨", "주식 추천", "점심 뭐 먹을까")
+- Asks about information clearly outside any academic paper (e.g. "저자 SNS 알려줘", "저자 연락처가 뭐야?")
 
-Default to "yes" when unsure.
+Default to "yes" when unsure. Questions about the paper's content, metadata, or academic topics should almost always be "yes".
 
 Question: {question}
 Answer (yes or no):"""
