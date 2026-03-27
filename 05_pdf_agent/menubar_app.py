@@ -233,17 +233,23 @@ class PDFChatbotApp(rumps.App):
                 ["lsof", "+d", watched, "-F", "n"],
                 capture_output=True, text=True, timeout=3,
             )
-            pdf_path = None
+            # 열린 PDF 후보를 모두 수집 — 이미 로드한 파일은 제외
+            candidates = []
             for line in result.stdout.splitlines():
                 if line.startswith("n") and line.lower().endswith(".pdf"):
-                    candidate = line[1:]  # 'n' 접두사 제거
-                    if Path(candidate).exists():
-                        pdf_path = candidate
-                        break
+                    candidate = line[1:]
+                    p = Path(candidate)
+                    if p.exists() and candidate != self._last_watched_pdf:
+                        candidates.append(candidate)
 
-            if pdf_path and pdf_path != self._last_watched_pdf:
-                if self._load_paper(pdf_path):   # 성공 시에만 중복 방지 플래그 설정
-                    self._last_watched_pdf = pdf_path
+            if not candidates:
+                return
+
+            # 여러 PDF가 열려 있을 때 가장 최근에 액세스된 파일 선택
+            pdf_path = max(candidates, key=lambda p: Path(p).stat().st_atime)
+
+            if self._load_paper(pdf_path):   # 성공 시에만 중복 방지 플래그 설정
+                self._last_watched_pdf = pdf_path
         except Exception:
             pass
 
