@@ -28,6 +28,13 @@ if str(_MINI_PROJECT_DIR) not in sys.path:
 
 from rag_engine import PDFChatbot, RAGConfig  # noqa: E402
 
+# 05_pdf_agent 디렉터리를 path에 추가해 agent.llm_config 임포트 가능하게
+_PDF_AGENT_DIR = Path(__file__).parent.parent
+if str(_PDF_AGENT_DIR) not in sys.path:
+    sys.path.insert(0, str(_PDF_AGENT_DIR))
+
+from agent.llm_config import get_llm_model, get_llm_temperature  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # ── FAISS 캐시 경로 자동 감지 ─────────────────────────────────────────────────
@@ -120,7 +127,11 @@ def load_pdf_async(pdf_path: str) -> None:
 
         try:
             push_event({"type": "loading_progress", "pct": 20})
-            config = RAGConfig(cache_dir=CACHE_DIR)
+            config = RAGConfig(
+                cache_dir=CACHE_DIR,
+                llm_model=get_llm_model(),
+                llm_temperature=get_llm_temperature(),
+            )
             chatbot = PDFChatbot(
                 pdf_source=pdf_path,
                 config=config,
