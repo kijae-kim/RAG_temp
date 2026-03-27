@@ -14,6 +14,7 @@
       <div class="tabs">
         <button class="tab active" id="tab-chat" onclick="switchTab('chat')">채팅</button>
         <button class="tab" id="tab-analysis" onclick="switchTab('analysis')">분석</button>
+        <button class="tab" id="tab-settings" onclick="switchTab('settings')">설정</button>
       </div>
       <button class="btn-close" onclick="closeWindow()" title="닫기">✕</button>
     </div>
@@ -73,7 +74,52 @@
     </div>
   </div>
 
+  <!-- 설정 탭 -->
+  <div class="tab-content hidden" id="pane-settings">
+    <div class="settings-area">
+
+      <!-- 프로바이더 선택 -->
+      <div class="settings-section">
+        <h3 class="settings-title">LLM 프로바이더</h3>
+        <div class="provider-btns" id="provider-btns">
+          <button class="provider-btn" data-provider="ollama" onclick="selectProvider('ollama')">Ollama (로컬)</button>
+          <button class="provider-btn" data-provider="openai" onclick="selectProvider('openai')">OpenAI</button>
+          <button class="provider-btn" data-provider="anthropic" onclick="selectProvider('anthropic')">Anthropic</button>
+        </div>
+      </div>
+
+      <!-- 모델 선택 -->
+      <div class="settings-section">
+        <h3 class="settings-title">모델</h3>
+        <select class="settings-select" id="model-select"></select>
+      </div>
+
+      <!-- API 키 입력 (ollama는 숨김) -->
+      <div class="settings-section" id="apikey-section">
+        <h3 class="settings-title">API 키</h3>
+        <input
+          class="settings-input"
+          id="api-key-input"
+          type="password"
+          placeholder="sk-..."
+        />
+        <p class="settings-hint" id="apikey-hint"></p>
+      </div>
+
+      <!-- 저장 + 연결 테스트 -->
+      <div class="settings-actions">
+        <button class="btn-settings-save" onclick="saveSettings()">저장</button>
+        <button class="btn-settings-test" onclick="testConnection()">연결 테스트</button>
+      </div>
+
+      <!-- 결과 메시지 -->
+      <p class="settings-msg hidden" id="settings-msg"></p>
+
+    </div>
+  </div>
+
   <script src="chat.js"></script>
   <script src="analysis.js"></script>
+  <script src="settings.js"></script>
 </body>
 </html>

@@ -460,5 +460,134 @@ textarea::placeholder { color: var(--text-dim); }
   color: var(--text);
 }
 
+/* ── 설정 탭 ─────────────────────────────────────────────────────────────── */
+.settings-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.provider-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.provider-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 8px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.provider-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.provider-btn:hover:not(.active) {
+  border-color: var(--text-dim);
+  color: var(--text);
+}
+
+.settings-select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+  cursor: pointer;
+}
+
+.settings-select:focus { border-color: var(--accent); }
+
+.settings-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.settings-input:focus { border-color: var(--accent); }
+.settings-input::placeholder { color: var(--text-dim); }
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-settings-save {
+  flex: 1;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-settings-save:hover { background: var(--accent-h); }
+
+.btn-settings-test {
+  flex: 1;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-settings-test:hover { border-color: var(--text-dim); color: var(--text); }
+
+.settings-msg {
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+}
+
+.settings-msg--success { background: #1e3a2f; color: var(--success); }
+.settings-msg--error   { background: #3d1f27; color: var(--error); }
+.settings-msg--info    { background: var(--surface); color: var(--text-dim); }
+
 /* ── 유틸리티 ───────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }

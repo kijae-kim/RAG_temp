@@ -33,7 +33,7 @@ _PDF_AGENT_DIR = Path(__file__).parent.parent
 if str(_PDF_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_PDF_AGENT_DIR))
 
-from agent.llm_config import get_llm_model, get_llm_temperature  # noqa: E402
+from agent.llm_config import get_chat_llm, get_llm_model, get_llm_temperature  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +132,12 @@ def load_pdf_async(pdf_path: str) -> None:
                 llm_model=get_llm_model(),
                 llm_temperature=get_llm_temperature(),
             )
+            llm = get_chat_llm()
             chatbot = PDFChatbot(
                 pdf_source=pdf_path,
                 config=config,
                 embeddings=_state["embedding_model"],
+                llm=llm,
             )
             push_event({"type": "loading_progress", "pct": 100})
 

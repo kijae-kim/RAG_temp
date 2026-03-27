@@ -149,9 +149,11 @@ class PDFChatbot:
         pdf_source: PDFSource,
         config: RAGConfig | None = None,
         embeddings: HuggingFaceEmbeddings | None = None,
+        llm=None,
     ) -> None:
         self._config = config or RAGConfig()
         self._embeddings = embeddings  # 외부에서 주입된 캐시 모델 (없으면 내부에서 새로 로드)
+        self._llm = llm  # 외부에서 주입된 LLM 인스턴스 (없으면 config.llm_model로 Ollama 생성)
         self._session_store: dict[str, ChatMessageHistory] = {}
         self._temp_path: Path | None = None
         self._last_sources: list[Document] = []
@@ -402,7 +404,7 @@ class PDFChatbot:
         return faiss_db
 
     def _build_chain(self, retriever: EnsembleRetriever) -> RunnableWithMessageHistory:
-        llm = ChatOllama(
+        llm = self._llm or ChatOllama(
             model=self._config.llm_model,
             temperature=self._config.llm_temperature,
         )

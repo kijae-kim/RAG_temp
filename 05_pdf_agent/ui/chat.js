@@ -174,6 +174,7 @@ function switchTab(name) {
   document.querySelectorAll(".tab-content").forEach((p) => p.classList.add("hidden"));
   document.getElementById(`tab-${name}`).classList.add("active");
   document.getElementById(`pane-${name}`).classList.remove("hidden");
+  if (name === "settings" && typeof loadSettings === "function") loadSettings();
 }
 
 // ── DOM 헬퍼 ────────────────────────────────────────────────────────────────
