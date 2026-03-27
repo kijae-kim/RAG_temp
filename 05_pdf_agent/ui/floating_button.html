@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 72px;
+      height: 72px;
+      background: #1e1e2e;
+      overflow: hidden;
+      -webkit-user-select: none;
+    }
+
+    .fab {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7c6af5, #9d8ff7);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      box-shadow: 0 4px 18px rgba(124, 106, 245, 0.55);
+      transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+      /* 드래그로 창 이동 */
+      -webkit-app-region: drag;
+    }
+
+    .fab:hover {
+      transform: scale(1.08);
+      box-shadow: 0 6px 22px rgba(124, 106, 245, 0.75);
+    }
+
+    .fab:active {
+      transform: scale(0.93);
+      opacity: 0.85;
+    }
+
+    /* 클릭 영역은 드래그 제외 */
+    .fab-icon {
+      -webkit-app-region: no-drag;
+      pointer-events: none;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+  <button class="fab" onclick="toggle()">
+    <span class="fab-icon">🤖</span>
+  </button>
+
+  <script>
+    function toggle() {
+      if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.toggle_chat();
+      }
+    }
+  </script>
+</body>
+</html>

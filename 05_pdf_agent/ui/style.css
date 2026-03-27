@@ -190,6 +190,52 @@ body {
   padding: 2px 7px;
   font-size: 11px;
   color: var(--text-dim);
+  transition: all 0.15s;
+}
+
+.source-chip.clickable {
+  cursor: pointer;
+}
+
+.source-chip.clickable:hover {
+  border-color: var(--accent);
+  color: var(--accent-h);
+}
+
+.source-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ── 출처 인용 카드 ──────────────────────────────────────────────────────── */
+.source-quote {
+  margin-top: 6px;
+  background: #252535;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  animation: fadeIn 0.15s ease;
+}
+
+.source-quote-meta {
+  font-size: 11px;
+  color: var(--accent-h);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.source-quote-text {
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── 입력 영역 ──────────────────────────────────────────────────────────── */
@@ -340,6 +386,78 @@ textarea::placeholder { color: var(--text-dim); }
   color: var(--text-dim);
   margin-bottom: 3px;
   display: block;
+}
+
+/* ── 스타일 셀렉터 ───────────────────────────────────────────────────────── */
+.style-selector {
+  display: flex;
+  gap: 4px;
+}
+
+.style-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.style-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.style-btn:hover:not(.active) {
+  border-color: var(--text-dim);
+  color: var(--text);
+}
+
+/* ── 이어서 학습하기 카드 ───────────────────────────────────────────────── */
+.resume-card {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.resume-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn-resume {
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-resume.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-resume.primary:hover { background: var(--accent-h); }
+
+.btn-resume.secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.btn-resume.secondary:hover {
+  border-color: var(--text-dim);
+  color: var(--text);
 }
 
 /* ── 유틸리티 ───────────────────────────────────────────────────────────── */

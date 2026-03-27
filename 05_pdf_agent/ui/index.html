@@ -33,6 +33,11 @@
   <div class="tab-content" id="pane-chat">
     <div class="chat-area" id="chat-area"></div>
     <div class="input-area">
+      <div class="style-selector">
+        <button class="style-btn" onclick="setStyle('brief')">간결</button>
+        <button class="style-btn active" id="style-default" onclick="setStyle('default')">기본</button>
+        <button class="style-btn" onclick="setStyle('detailed')">상세</button>
+      </div>
       <textarea
         id="question-input"
         placeholder="질문을 입력하세요... (Shift+Enter로 줄바꿈)"
