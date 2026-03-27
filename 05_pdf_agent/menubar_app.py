@@ -81,10 +81,16 @@ class PDFChatbotApp(rumps.App):
     def __init__(self):
         super().__init__("🤖", quit_button=None)
         self._webview_proc: subprocess.Popen | None = None
+        self._last_watched_pdf: str = ""   # 감시 폴더 자동 로드 중복 방지
 
         # 나중에 title을 바꿔야 하는 항목은 인스턴스 변수로 보관
         self._current_paper_item = rumps.MenuItem("현재 논문: 없음")
         self._recent_submenu = rumps.MenuItem("최근 논문")
+
+        prefs = _load_prefs()
+        watched = prefs.get("watched_folder", "")
+        watched_label = f"감시 폴더: {Path(watched).name}" if watched else "감시 폴더 설정..."
+        self._watched_folder_item = rumps.MenuItem(watched_label, callback=self._set_watched_folder)
 
         self._populate_recent_submenu()  # 첫 초기화: add()만, clear() 없음
 
@@ -94,6 +100,8 @@ class PDFChatbotApp(rumps.App):
             rumps.MenuItem("챗봇 열기",    callback=self._open_chat),
             rumps.MenuItem("논문 선택...", callback=self._select_paper),
             self._recent_submenu,
+            None,
+            self._watched_folder_item,
             None,
             rumps.MenuItem("학습 기록 보기", callback=self._open_sessions),
             None,
@@ -148,6 +156,27 @@ class PDFChatbotApp(rumps.App):
         except Exception as exc:
             rumps.notification("PDF 챗봇", "파일 선택 오류", str(exc))
 
+    def _set_watched_folder(self, _=None) -> None:
+        """NSOpenPanel으로 감시 폴더를 선택한다."""
+        try:
+            import AppKit
+            panel = AppKit.NSOpenPanel.openPanel()
+            panel.setCanChooseFiles_(False)
+            panel.setCanChooseDirectories_(True)
+            panel.setAllowsMultipleSelection_(False)
+            panel.setTitle_("논문 PDF 감시 폴더 선택")
+
+            if panel.runModal() == AppKit.NSOKButton:
+                folder_path = panel.URLs()[0].path()
+                prefs = _load_prefs()
+                prefs["watched_folder"] = folder_path
+                _save_prefs(prefs)
+                self._last_watched_pdf = ""  # 새 폴더 설정 시 감지 초기화
+                self._watched_folder_item.title = f"감시 폴더: {Path(folder_path).name}"
+                rumps.notification("PDF 챗봇", "감시 폴더 설정", f"{Path(folder_path).name} 폴더를 감시합니다.")
+        except Exception as exc:
+            rumps.notification("PDF 챗봇", "폴더 선택 오류", str(exc))
+
     def _open_sessions(self, _=None) -> None:
         sessions_dir = Path("~/Library/Application Support/PDFChatbot/sessions").expanduser()
         sessions_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +206,38 @@ class PDFChatbotApp(rumps.App):
                 rumps.notification("PDF 챗봇", "로드 실패", detail)
         except requests.RequestException as exc:
             rumps.notification("PDF 챗봇", "서버 연결 실패", str(exc))
+
+    # ── 감시 폴더: 열린 PDF 파일 감지 ───────────────────────────────────────
+    @rumps.timer(3)
+    def _check_watched_folder(self, _) -> None:
+        """
+        3초마다 lsof로 감시 폴더 내 열린 PDF를 감지해 자동 로드한다.
+        AppleScript 대신 lsof를 사용해 앱 종류에 무관하게 동작.
+        """
+        prefs = _load_prefs()
+        watched = prefs.get("watched_folder", "")
+        if not watched:
+            return
+
+        try:
+            # lsof +d: 해당 디렉토리에 열린 파일 목록 (비재귀, -F n: 파일명만)
+            result = subprocess.run(
+                ["lsof", "+d", watched, "-F", "n"],
+                capture_output=True, text=True, timeout=3,
+            )
+            pdf_path = None
+            for line in result.stdout.splitlines():
+                if line.startswith("n") and line.lower().endswith(".pdf"):
+                    candidate = line[1:]  # 'n' 접두사 제거
+                    if Path(candidate).exists():
+                        pdf_path = candidate
+                        break
+
+            if pdf_path and pdf_path != self._last_watched_pdf:
+                self._last_watched_pdf = pdf_path
+                self._load_paper(pdf_path)
+        except Exception:
+            pass
 
     # ── 상태 아이콘 폴링 ──────────────────────────────────────────────────────
     @rumps.timer(5)

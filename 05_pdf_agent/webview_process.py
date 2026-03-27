@@ -3,9 +3,16 @@ webview_process.py
 
 pywebview 채팅 창 프로세스 — menubar_app.py가 subprocess.Popen()으로 실행한다.
 
-- 420×700 frameless 창, 항상 위, PDF 뷰어 오른쪽에 배치
-- Python 백그라운드 스레드로 창 위치를 1초마다 감지해 preferences.json에 저장
-- WebviewBridge: JS에서 window.pywebview.api.method()로 macOS 네이티브 동작 호출
+창 구성:
+  - 메인 채팅 창: 420×700 frameless, 항상 위, PDF 뷰어 오른쪽에 배치
+  - FAB 버튼 창: 72×72 원형, 투명 배경, 채팅 창 토글
+
+WebviewBridge 메서드:
+  - close_window()         : 채팅 창 닫기
+  - toggle_chat()          : 채팅 창 표시/숨기기
+  - open_pdf_at_page()     : PDF 뷰어에서 특정 페이지로 이동
+  - open_file_in_finder()  : Finder에서 파일 위치 열기
+  - is_ollama_running()    : Ollama 상태 확인
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ import webview
 # ── 설정 ─────────────────────────────────────────────────────────────────────
 API_BASE = "http://localhost:8765"
 CHAT_W, CHAT_H, MARGIN = 420, 700, 10
+FAB_SIZE = 72
 PREFS_PATH = Path("~/Library/Application Support/PDFChatbot/preferences.json").expanduser()
 PREFS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -39,6 +47,17 @@ def _load_prefs() -> dict:
 
 def _save_prefs(prefs: dict) -> None:
     PREFS_PATH.write_text(json.dumps(prefs, ensure_ascii=False, indent=2))
+
+
+# ── 화면 크기 (webview.start() 전에도 안전하게 동작) ─────────────────────────
+def _get_screen_size() -> tuple[int, int]:
+    """AppKit으로 주 화면 크기를 반환한다 — webview.screens 대신 사용."""
+    try:
+        import AppKit
+        frame = AppKit.NSScreen.mainScreen().frame()
+        return int(frame.size.width), int(frame.size.height)
+    except Exception:
+        return 1440, 900
 
 
 # ── 창 위치 계산 ─────────────────────────────────────────────────────────────
@@ -62,9 +81,7 @@ def _get_pdf_viewer_frame() -> dict | None:
 
 
 def _calculate_window_position(prefs: dict) -> tuple[int, int]:
-    screens = webview.screens
-    sw = screens[0].width if screens else 1440
-    sh = screens[0].height if screens else 900
+    sw, _sh = _get_screen_size()
 
     pdf_frame = _get_pdf_viewer_frame()
     if pdf_frame:
@@ -74,19 +91,25 @@ def _calculate_window_position(prefs: dict) -> tuple[int, int]:
             x = int(pdf_frame["X"]) - CHAT_W - MARGIN
         return max(0, x), max(0, y)
 
-    if "window_x" in prefs and "window_y" in prefs:
-        return prefs["window_x"], prefs["window_y"]
+    wx, wy = prefs.get("window_x"), prefs.get("window_y")
+    if isinstance(wx, (int, float)) and isinstance(wy, (int, float)):
+        return int(wx), int(wy)
 
-    # 폴백: 화면 우상단 (macOS 메뉴바 높이 24px 고려)
     return sw - CHAT_W - MARGIN, 24
+
+
+def _fab_position(chat_x: int, chat_y: int) -> tuple[int, int]:
+    """FAB 버튼 위치: 채팅 창 왼쪽, 세로 중앙. 공간 없으면 오른쪽."""
+    sw, _sh = _get_screen_size()
+    fab_x = chat_x - FAB_SIZE - MARGIN
+    fab_y = chat_y + CHAT_H // 2 - FAB_SIZE // 2
+    if fab_x < 0:
+        fab_x = chat_x + CHAT_W + MARGIN
+    return max(0, fab_x), max(0, fab_y)
 
 
 # ── 창 위치 자동 저장 ─────────────────────────────────────────────────────────
 def _watch_position(window: webview.Window) -> None:
-    """
-    1초마다 창 위치를 확인해 변경 시 preferences.json에 저장.
-    window.screenX/Y가 아닌 Python window.x, window.y 사용.
-    """
     last: tuple | None = None
     while True:
         try:
@@ -105,15 +128,68 @@ def _watch_position(window: webview.Window) -> None:
 class WebviewBridge:
     """JS에서 window.pywebview.api.method() 형태로 호출한다."""
 
-    def __init__(self, window_ref: list) -> None:
-        # window 객체는 webview.start() 이후에 생성되므로 list로 참조 전달
-        self._window_ref = window_ref
+    def __init__(self, window_ref: list, chat_visible: list) -> None:
+        self._window_ref = window_ref   # [main_window]
+        self._chat_visible = chat_visible  # [True/False]
 
     def close_window(self) -> None:
-        """채팅 창을 닫는다."""
+        """채팅 창을 숨긴다 (destroy 대신 hide — FAB으로 재표시 가능)."""
         win = self._window_ref[0]
         if win:
-            win.destroy()
+            win.hide()
+            self._chat_visible[0] = False
+
+    def toggle_chat(self) -> None:
+        """채팅 창을 표시하거나 숨긴다."""
+        win = self._window_ref[0]
+        if not win:
+            return
+        if self._chat_visible[0]:
+            win.hide()
+            self._chat_visible[0] = False
+        else:
+            win.show()
+            win.on_top = True   # 다시 표시할 때 최상단 보장
+            self._chat_visible[0] = True
+
+    def open_pdf_at_page(self, path: str, page: int, text: str = "") -> None:
+        """
+        PDF를 Preview에서 지정 페이지로 이동한다.
+        이미 열려 있으면 포커스만 이동하고 새 창을 열지 않는다.
+        page: RAG metadata의 page 값 (0-indexed 정수)
+
+        Preview 11(macOS Ventura/Sonoma)에서 AppleScript 'current page' 속성이
+        제거되었으므로 System Events의 '이동 > 페이지로 이동…' 메뉴를 사용한다.
+        """
+        def _do() -> None:
+            target_page_1 = max(1, int(page) + 1)   # 1-indexed
+
+            # PDF 열기 (이미 Preview에 열려 있으면 포커스만 이동)
+            subprocess.Popen(["open", "-a", "Preview", path])
+            time.sleep(0.8)
+
+            # System Events: 이동 > 페이지로 이동… 메뉴 클릭 후 페이지 번호 입력
+            script = (
+                'tell application "Preview" to activate\n'
+                'delay 0.3\n'
+                'tell application "System Events"\n'
+                '    tell process "Preview"\n'
+                '        click menu item "페이지로 이동\u2026"'
+                ' of menu "이동" of menu bar 1\n'
+                '    end tell\n'
+                'end tell\n'
+                'delay 0.4\n'
+                'tell application "System Events"\n'
+                f'    keystroke "{target_page_1}"\n'
+                '    key code 36\n'
+                'end tell'
+            )
+            try:
+                subprocess.run(["osascript", "-e", script], timeout=8)
+            except Exception:
+                pass
+
+        threading.Thread(target=_do, daemon=True).start()
 
     def open_file_in_finder(self, path: str) -> None:
         """Finder에서 파일 위치 열기."""
@@ -129,25 +205,42 @@ class WebviewBridge:
 # ── 진입점 ───────────────────────────────────────────────────────────────────
 def main() -> None:
     prefs = _load_prefs()
-    x, y = _calculate_window_position(prefs)
+    chat_x, chat_y = _calculate_window_position(prefs)
+    fab_x, fab_y = _fab_position(chat_x, chat_y)
 
-    # window 객체는 create_window() 반환값이지만 브릿지에 미리 참조 전달
     window_ref: list = [None]
-    bridge = WebviewBridge(window_ref)
+    chat_visible: list = [True]
+    bridge = WebviewBridge(window_ref, chat_visible)
 
+    # 메인 채팅 창
     window = webview.create_window(
         title="논문 AI 챗봇",
         url=f"{API_BASE}/ui/index.html",
         width=CHAT_W,
         height=CHAT_H,
-        x=x,
-        y=y,
+        x=chat_x,
+        y=chat_y,
         frameless=True,
         on_top=True,
         resizable=False,
         js_api=bridge,
     )
     window_ref[0] = window
+
+    # FAB 토글 버튼 창 (원형, 투명 배경)
+    webview.create_window(
+        title="",
+        url=f"{API_BASE}/ui/floating_button.html",
+        width=FAB_SIZE,
+        height=FAB_SIZE,
+        x=fab_x,
+        y=fab_y,
+        frameless=True,
+        on_top=True,
+        resizable=False,
+        background_color="#1e1e2e",
+        js_api=bridge,
+    )
 
     def on_shown():
         threading.Thread(
