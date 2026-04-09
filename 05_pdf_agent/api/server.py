@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from api.engine_state import set_event_loop, start_warmup
-from api.routes import agent, chat, document, events, session, settings
+from api.routes import agent, chat, document, events, onboarding, session, settings
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(agent.router)
     app.include_router(session.router)
     app.include_router(settings.router)
+    app.include_router(onboarding.router)
 
     @app.on_event("startup")
     async def _startup() -> None:
