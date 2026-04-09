@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+
+    steps:
+      - name: 소스 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Poetry 설치
+        run: pip install poetry==2.3.2
+
+      - name: 의존성 설치
+        run: |
+          poetry install --without dev
+          pip install py2app
+          brew install create-dmg
+
+      - name: 버전 추출
+        id: version
+        run: |
+          VERSION=$(grep '__version__' 05_pdf_agent/menubar_app.py | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "빌드 버전: $VERSION"
+
+      - name: 코드 서명 인증서 복원 (선택)
+        if: ${{ secrets.APPLE_CERT_P12 != '' }}
+        run: |
+          echo "${{ secrets.APPLE_CERT_P12 }}" | base64 --decode > cert.p12
+          security create-keychain -p "" build.keychain
+          security import cert.p12 -k build.keychain \
+            -P "${{ secrets.APPLE_CERT_PASSWORD }}" \
+            -A -t cert -f pkcs12
+          security list-keychains -s build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          rm cert.p12
+
+      - name: 빌드
+        working-directory: 05_pdf_agent
+        run: ./build.sh
+        env:
+          APPLE_CERT_NAME: ${{ secrets.APPLE_CERT_NAME }}
+
+      - name: 공증 (선택)
+        if: ${{ secrets.APPLE_ID != '' }}
+        working-directory: 05_pdf_agent
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ditto -c -k --keepParent \
+            "PDFChatbot-${VERSION}.dmg" PDFChatbot.zip
+          xcrun notarytool submit PDFChatbot.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --wait
+          xcrun stapler staple "PDFChatbot-${VERSION}.dmg"
+          rm PDFChatbot.zip
+
+      - name: pdfchatbot-releases 레포에 배포
+        env:
+          RELEASES_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          RELEASES_REPO: ${{ secrets.RELEASES_REPO_NAME }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git clone "https://x-access-token:${RELEASES_TOKEN}@github.com/${RELEASES_REPO}.git" releases_repo
+          cp "05_pdf_agent/PDFChatbot-${VERSION}.dmg" releases_repo/
+          cd releases_repo
+          # index.html의 DMG 링크와 버전 텍스트 업데이트
+          sed -i '' "s/PDFChatbot-[0-9][0-9.]*\.dmg/PDFChatbot-${VERSION}.dmg/g" index.html
+          sed -i '' "s/v[0-9][0-9.]*/v${VERSION}/g" index.html
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add "PDFChatbot-${VERSION}.dmg" index.html
+          git commit -m "Release v${VERSION}"
+          git push
