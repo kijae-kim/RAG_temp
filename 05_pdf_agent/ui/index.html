@@ -85,6 +85,7 @@
           <button class="provider-btn" data-provider="ollama" onclick="selectProvider('ollama')">Ollama (로컬)</button>
           <button class="provider-btn" data-provider="openai" onclick="selectProvider('openai')">OpenAI</button>
           <button class="provider-btn" data-provider="anthropic" onclick="selectProvider('anthropic')">Anthropic</button>
+          <button class="provider-btn" data-provider="google" onclick="selectProvider('google')">Google</button>
         </div>
       </div>
 
@@ -118,8 +119,95 @@
     </div>
   </div>
 
+  <!-- 온보딩 마법사 탭 -->
+  <div class="tab-content hidden" id="pane-onboarding">
+    <div class="ob-area">
+
+      <!-- Step 1: 환영 -->
+      <div class="ob-step" id="ob-step-1">
+        <div class="ob-icon">🤖</div>
+        <h2 class="ob-title">PDFChatbot에 오신 것을 환영합니다</h2>
+        <p class="ob-desc">논문 PDF를 열면 AI 챗봇이 자동으로 활성화됩니다.<br>먼저 사용할 AI 모델을 설정해주세요.</p>
+        <button class="ob-btn-primary" onclick="obNext1()">시작하기</button>
+      </div>
+
+      <!-- Step 2: LLM 선택 -->
+      <div class="ob-step hidden" id="ob-step-2">
+        <h2 class="ob-title">AI 모델 선택</h2>
+        <p class="ob-desc">사용할 AI 프로바이더를 선택해주세요.</p>
+        <div class="ob-provider-btns">
+          <button class="ob-provider-btn active" data-provider="ollama" onclick="obSelectProvider('ollama')">Ollama (로컬·무료)</button>
+          <button class="ob-provider-btn" data-provider="openai" onclick="obSelectProvider('openai')">OpenAI</button>
+          <button class="ob-provider-btn" data-provider="anthropic" onclick="obSelectProvider('anthropic')">Anthropic</button>
+          <button class="ob-provider-btn" data-provider="google" onclick="obSelectProvider('google')">Google</button>
+        </div>
+        <div id="ob-ollama-guide" class="ob-guide">
+          <p>터미널에서 아래 명령어를 실행해 Ollama를 설치하세요:</p>
+          <code>brew install ollama<br>ollama pull qwen2.5:7b</code>
+        </div>
+        <div id="ob-apikey-section" class="hidden">
+          <select class="ob-select" id="ob-model-select"></select>
+          <input class="ob-input" id="ob-api-key" type="password" placeholder="API 키 입력 (sk-...)" />
+        </div>
+        <p class="ob-msg" id="ob-step2-msg"></p>
+        <button class="ob-btn-primary" onclick="obNext2()">다음</button>
+      </div>
+
+      <!-- Step 3: 연결 테스트 -->
+      <div class="ob-step hidden" id="ob-step-3">
+        <h2 class="ob-title">연결 테스트</h2>
+        <p class="ob-desc">설정한 AI 모델과 연결을 확인합니다.</p>
+        <button class="ob-btn-secondary" onclick="obTestConnection()">연결 테스트</button>
+        <p class="ob-msg" id="ob-test-msg"></p>
+        <div class="ob-actions">
+          <button class="ob-btn-text" onclick="obSkipTest()">건너뛰기</button>
+          <button class="ob-btn-primary" id="ob-btn-next3" onclick="obNext3()" disabled>다음</button>
+        </div>
+      </div>
+
+      <!-- Step 4: 감시 폴더 -->
+      <div class="ob-step hidden" id="ob-step-4">
+        <h2 class="ob-title">감시 폴더 설정 (선택)</h2>
+        <p class="ob-desc">PDF를 열면 자동으로 챗봇이 활성화될 폴더를 지정하세요.</p>
+        <button class="ob-btn-secondary" onclick="obSelectFolder()">폴더 선택</button>
+        <p class="ob-folder-path hidden" id="ob-folder-path"></p>
+        <div class="ob-actions">
+          <button class="ob-btn-text" onclick="obSkipFolder()">나중에 설정</button>
+          <button class="ob-btn-primary hidden" id="ob-folder-confirm" onclick="obConfirmFolder()">확인</button>
+        </div>
+      </div>
+
+      <!-- Step 5: 완료 -->
+      <div class="ob-step hidden" id="ob-step-5">
+        <div class="ob-icon">✅</div>
+        <h2 class="ob-title">설정 완료!</h2>
+        <p class="ob-desc">이제 PDF를 열면 AI 챗봇이 자동으로 활성화됩니다.</p>
+        <button class="ob-btn-primary" onclick="obDone()">시작하기</button>
+      </div>
+
+    </div>
+  </div>
+
   <script src="chat.js"></script>
   <script src="analysis.js"></script>
   <script src="settings.js"></script>
+  <script src="onboarding.js"></script>
+  <script>
+    // DOM 로드 완료 후 온보딩 상태 확인
+    document.addEventListener("DOMContentLoaded", () => {
+      // settings.js의 모델 옵션으로 온보딩 모델 드롭다운 채우기
+      setTimeout(() => {
+        const sel = document.getElementById("ob-model-select");
+        if (sel && typeof _modelOptions !== "undefined") {
+          (_modelOptions["ollama"] || []).forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m; opt.textContent = m;
+            sel.appendChild(opt);
+          });
+        }
+        checkOnboarding();
+      }, 500);
+    });
+  </script>
 </body>
 </html>
