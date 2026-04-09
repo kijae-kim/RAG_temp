@@ -26,6 +26,8 @@ import requests
 import rumps
 import uvicorn
 
+__version__ = "1.0.0"
+
 # ── 단일 인스턴스 보장 ────────────────────────────────────────────────────────
 def _ensure_single_instance(port: int = 8765) -> None:
     """포트가 이미 점유된 경우 종료한다."""
