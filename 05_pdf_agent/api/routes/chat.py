@@ -65,6 +65,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
         raise HTTPException(status_code=400, detail="논문이 로드되지 않았습니다.")
 
     def generate():
+        full_response: list[str] = []
         try:
             # Phase 2: LangGraph로 의도 분류 (동기, ~1~2초)
             yield 'data: {"type":"intent_classifying"}\n\n'
@@ -74,18 +75,21 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
             # 의도에 맞는 스트리밍 함수 선택 후 API 레이어에서 직접 스트리밍
             stream_fn = STREAM_FN_MAP.get(intent, STREAM_FN_MAP["qa"])
             for token in stream_fn(chatbot, req.question, req.session_id, req.style):
+                full_response.append(token)
                 yield f"data: {json.dumps({'type': 'token', 'content': token}, ensure_ascii=False)}\n\n"
 
             sources = chatbot.last_sources or []
             yield f"data: {{\"type\":\"sources\",\"content\":{_serialize_sources(sources, get_paper_path())}}}\n\n"
             yield "data: {\"type\":\"done\",\"content\":null}\n\n"
 
-            # 질문 카운터 증가 (세션 파일 있을 때만)
+            # 질문 카운터 증가 + 채팅 메시지 저장
             try:
-                from session.session_manager import increment_questions
+                from session.session_manager import append_chat_message, increment_questions
                 paper_path = get_paper_path()
                 if paper_path:
                     increment_questions(paper_path)
+                    append_chat_message(paper_path, "user", req.question)
+                    append_chat_message(paper_path, "assistant", "".join(full_response))
             except Exception:
                 pass
 
