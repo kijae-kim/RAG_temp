@@ -79,7 +79,7 @@ def upsert_session(
         existing.last_accessed = now
         existing.total_sessions += 1
         existing.summary = summary
-        # 기존 understood 상태 보존하며 개념 목록 갱신
+        existing.pdf_path = pdf_path  # 항상 최신 경로로 갱신
         prev_map = {c.concept: c for c in existing.concepts_learned}
         existing.concepts_learned = [
             prev_map.get(c, ConceptNote(concept=c)) for c in concepts
@@ -93,6 +93,7 @@ def upsert_session(
         pdf_name=pdf_name,
         started_at=now,
         last_accessed=now,
+        pdf_path=pdf_path,
         summary=summary,
         concepts_learned=[ConceptNote(concept=c) for c in concepts],
     )
@@ -121,3 +122,13 @@ def mark_concept_understood(pdf_path: str, concept: str) -> bool:
             save_session(session)
             return True
     return False
+
+
+def append_chat_message(pdf_path: str, role: str, content: str) -> None:
+    """채팅 메시지를 세션에 추가한다. 세션이 없으면 무시."""
+    session = load_session(pdf_path)
+    if not session:
+        return
+    session.chat_messages.append({"role": role, "content": content})
+    session.last_accessed = datetime.now().isoformat(timespec="seconds")
+    save_session(session)
