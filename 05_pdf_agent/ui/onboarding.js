@@ -43,8 +43,8 @@ function _showOnboarding() {
 function _hideOnboarding() {
   document.getElementById("pane-onboarding").classList.add("hidden");
   document.querySelectorAll(".tab").forEach(el => el.disabled = false);
-  // 채팅 탭으로 전환
-  switchTab("chat");
+  // 런처 탭으로 전환
+  switchTab("launcher");
 }
 
 // ── 단계 전환 ─────────────────────────────────────────────────────────────────
