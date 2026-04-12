@@ -25,14 +25,20 @@ class StudySession:
     total_sessions: int = 1
     questions_asked: int = 0
     concepts_learned: list[ConceptNote] = field(default_factory=list)
-    summary: str = ""      # 논문 한국어 요약
+    summary: str = ""
+    pdf_path: str = ""                           # 재개 시 PDF 재로드용
+    chat_messages: list[dict] = field(default_factory=list)
+    # chat_messages 항목: {"role": "user"|"assistant", "content": str}
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "StudySession":
+        d = dict(d)  # 원본 변형 방지
         concepts_data = d.pop("concepts_learned", [])
+        chat_data = d.pop("chat_messages", [])
         s = cls(**d)
         s.concepts_learned = [ConceptNote(**c) for c in concepts_data]
+        s.chat_messages = list(chat_data)
         return s
