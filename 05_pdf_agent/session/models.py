@@ -24,11 +24,11 @@ class StudySession:
     last_accessed: str     # ISO datetime (최종 접근)
     total_sessions: int = 1
     questions_asked: int = 0
-    concepts_learned: list[ConceptNote] = field(default_factory=list)
     summary: str = ""
     pdf_path: str = ""                           # 재개 시 PDF 재로드용
-    chat_messages: list[dict] = field(default_factory=list)
     # chat_messages 항목: {"role": "user"|"assistant", "content": str}
+    concepts_learned: list[ConceptNote] = field(default_factory=list)
+    chat_messages: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
