@@ -92,10 +92,13 @@ class PDFChatbotApp(rumps.App):
 
         prefs = _load_prefs()
         watched = prefs.get("watched_folder", "")
-        watched_label = f"감시 폴더: {Path(watched).name}" if watched else "감시 폴더 설정..."
+        watched_label = f"논문 폴더: {Path(watched).name}" if watched else "논문 폴더 설정..."
         self._watched_folder_item = rumps.MenuItem(watched_label, callback=self._set_watched_folder)
 
         self._populate_recent_submenu()  # 첫 초기화: add()만, clear() 없음
+
+        # 서버 준비 후 자동으로 챗봇 창 오픈
+        threading.Thread(target=self._open_when_ready, daemon=True).start()
 
         self.menu = [
             self._current_paper_item,
@@ -135,6 +138,19 @@ class PDFChatbotApp(rumps.App):
         return callback
 
     # ── 메뉴 핸들러 ──────────────────────────────────────────────────────────
+    def _open_when_ready(self) -> None:
+        """서버 ready 감지 후 webview를 자동 오픈한다."""
+        import time
+        for _ in range(60):          # 최대 30초 대기
+            try:
+                resp = requests.get("http://localhost:8765/api/status", timeout=1)
+                if resp.ok:
+                    self._open_chat()
+                    return
+            except Exception:
+                pass
+            time.sleep(0.5)
+
     def _open_chat(self, _=None) -> None:
         """채팅 창이 없으면 실행, 이미 실행 중이면 무시."""
         if self._webview_proc is None or self._webview_proc.poll() is not None:
@@ -175,8 +191,8 @@ class PDFChatbotApp(rumps.App):
                 prefs["watched_folder"] = folder_path
                 _save_prefs(prefs)
                 self._last_watched_pdf = ""  # 새 폴더 설정 시 감지 초기화
-                self._watched_folder_item.title = f"감시 폴더: {Path(folder_path).name}"
-                rumps.notification("PDF 챗봇", "감시 폴더 설정", f"{Path(folder_path).name} 폴더를 감시합니다.")
+                self._watched_folder_item.title = f"논문 폴더: {Path(folder_path).name}"
+                rumps.notification("PDF 챗봇", "논문 폴더 설정", f"{Path(folder_path).name} 폴더를 감시합니다.")
         except Exception as exc:
             rumps.notification("PDF 챗봇", "폴더 선택 오류", str(exc))
 
@@ -275,6 +291,12 @@ class PDFChatbotApp(rumps.App):
                 self.title = "🤖"
             else:
                 self.title = "⚠️"
+
+            # 논문 폴더 라벨 동기화 (webview_process에서 변경 시 반영)
+            watched = _load_prefs().get("watched_folder", "")
+            new_label = f"논문 폴더: {Path(watched).name}" if watched else "논문 폴더 설정..."
+            if self._watched_folder_item.title != new_label:
+                self._watched_folder_item.title = new_label
         except Exception:
             pass  # 서버 아직 시작 중이면 무시
 
