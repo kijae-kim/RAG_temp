@@ -320,9 +320,6 @@ function showIntentBadge(bubble, intent) {
   badge.textContent = labels[intent] || `🔧 ${intent}`;
 }
 
-function escapeHtml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 function showResumeCard(session) {
   const understood = (session.concepts_learned || []).filter((c) => c.understood).length;

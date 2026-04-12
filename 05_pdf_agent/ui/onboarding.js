@@ -132,7 +132,7 @@ async function obSelectFolder() {
   // pywebview 브릿지를 통해 폴더 선택 다이얼로그 열기
   try {
     if (window.pywebview && window.pywebview.api) {
-      const folder = await window.pywebview.api.select_watched_folder();
+      const folder = await window.pywebview.api.set_paper_folder();
       if (folder) {
         document.getElementById("ob-folder-path").textContent = folder;
         document.getElementById("ob-folder-confirm").classList.remove("hidden");

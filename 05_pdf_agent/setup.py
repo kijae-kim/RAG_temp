@@ -59,6 +59,7 @@ DATA_FILES = [
     ]),
     ('session', [
         _p('session', '__init__.py'),
+        _p('session', 'models.py'),
         _p('session', 'session_manager.py'),
     ]),
 ]
