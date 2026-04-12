@@ -12,7 +12,7 @@
     <span class="header-title">🤖 논문 AI 챗봇</span>
     <div class="header-right">
       <div class="tabs">
-        <button class="tab active" id="tab-chat" onclick="switchTab('chat')">채팅</button>
+        <button class="tab" id="tab-chat" onclick="switchTab('chat')">채팅</button>
         <button class="tab" id="tab-analysis" onclick="switchTab('analysis')">분석</button>
         <button class="tab" id="tab-settings" onclick="switchTab('settings')">설정</button>
       </div>
@@ -31,7 +31,7 @@
   </div>
 
   <!-- 채팅 탭 -->
-  <div class="tab-content" id="pane-chat">
+  <div class="tab-content hidden" id="pane-chat">
     <div class="chat-area" id="chat-area"></div>
     <div class="input-area">
       <div class="style-selector">
@@ -119,6 +119,20 @@
     </div>
   </div>
 
+  <!-- 런처 pane (기본 화면) -->
+  <div class="tab-content" id="pane-launcher">
+    <div class="launcher-area">
+      <div class="launcher-actions">
+        <button class="launcher-btn-primary" onclick="openNewPdf()">📄 새 PDF 열기</button>
+        <button class="launcher-btn-secondary" id="btn-paper-folder" onclick="setPaperFolder()">
+          📁 논문 폴더 설정...
+        </button>
+      </div>
+      <div class="launcher-section-title">최근 세션</div>
+      <div id="launcher-sessions" class="launcher-sessions"></div>
+    </div>
+  </div>
+
   <!-- 온보딩 마법사 탭 -->
   <div class="tab-content hidden" id="pane-onboarding">
     <div class="ob-area">
@@ -191,22 +205,25 @@
   <script src="chat.js"></script>
   <script src="analysis.js"></script>
   <script src="settings.js"></script>
+  <script src="launcher.js"></script>
   <script src="onboarding.js"></script>
   <script>
-    // DOM 로드 완료 후 온보딩 상태 확인
     document.addEventListener("DOMContentLoaded", () => {
-      // settings.js의 모델 옵션으로 온보딩 모델 드롭다운 채우기
-      setTimeout(() => {
-        const sel = document.getElementById("ob-model-select");
-        if (sel && typeof _modelOptions !== "undefined") {
-          (_modelOptions["ollama"] || []).forEach(m => {
-            const opt = document.createElement("option");
-            opt.value = m; opt.textContent = m;
-            sel.appendChild(opt);
-          });
+      setTimeout(async () => {
+        try {
+          const res = await fetch("http://localhost:8765/api/onboarding");
+          if (res.ok) {
+            const data = await res.json();
+            if (!data.onboarding_done) {
+              if (typeof _showOnboarding === "function") _showOnboarding();
+              return;
+            }
+          }
+        } catch (e) {
+          // 서버 미준비 시 런처 표시
         }
-        checkOnboarding();
-      }, 500);
+        switchTab("launcher");
+      }, 300);
     });
   </script>
 </body>
