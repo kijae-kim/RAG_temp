@@ -634,3 +634,124 @@ textarea::placeholder { color: var(--text-dim); }
 }
 .ob-btn-text { background: none; border: none; color: #6c7086; cursor: pointer; font-size: 13px; }
 .ob-folder-path { font-size: 12px; color: #a6e3a1; margin: 8px 0; }
+
+/* ── 런처 pane ────────────────────────────────────────────────────────── */
+.launcher-area {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.launcher-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.launcher-btn-primary {
+  background: #89b4fa;
+  color: #1e1e2e;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.launcher-btn-primary:hover {
+  background: #74c7ec;
+}
+
+.launcher-btn-secondary {
+  background: #313244;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.launcher-btn-secondary:hover {
+  background: #45475a;
+}
+
+.launcher-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6c7086;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+.launcher-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.launcher-card {
+  background: #313244;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.launcher-card-missing {
+  opacity: 0.5;
+}
+
+.launcher-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launcher-card-meta {
+  font-size: 11px;
+  color: #6c7086;
+}
+
+.launcher-btn-resume {
+  align-self: flex-end;
+  background: #a6e3a1;
+  color: #1e1e2e;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.launcher-btn-resume:hover {
+  background: #94e2d5;
+}
+
+.launcher-missing-label {
+  font-size: 11px;
+  color: #f38ba8;
+  align-self: flex-end;
+  margin-top: 4px;
+}
+
+.launcher-empty {
+  font-size: 13px;
+  color: #6c7086;
+  text-align: center;
+  padding: 24px 0;
+  line-height: 1.6;
+}
