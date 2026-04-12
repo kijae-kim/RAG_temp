@@ -5,57 +5,92 @@ setup.py — py2app 빌드 설정
   cd 05_pdf_agent
   python setup.py py2app
 """
+import sys
+import os
+sys.setrecursionlimit(10000)
+
+# setup.py가 어느 디렉터리에서 실행되든 05_pdf_agent/ 기준 절대 경로 사용
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
 from setuptools import setup
 
-APP = ['menubar_app.py']
+APP = [os.path.join(_HERE, 'menubar_app.py')]
+
+def _p(*parts):
+    """_HERE 기준 절대 경로 반환"""
+    return os.path.join(_HERE, *parts)
+
+# 04_mini_project 루트 (rag_engine.py 위치)
+_MINI_PROJECT = os.path.join(_HERE, '..', '04_mini_project')
 
 DATA_FILES = [
+    # rag_engine.py를 Resources/ 루트에 포함 (py2app sys.path에 포함됨)
+    ('', [os.path.join(_MINI_PROJECT, 'rag_engine.py')]),
     ('ui', [
-        'ui/index.html',
-        'ui/chat.js',
-        'ui/style.css',
-        'ui/settings.js',
-        'ui/analysis.js',
-        'ui/onboarding.js',
-        'ui/floating_button.html',
+        _p('ui', 'index.html'),
+        _p('ui', 'chat.js'),
+        _p('ui', 'style.css'),
+        _p('ui', 'settings.js'),
+        _p('ui', 'analysis.js'),
+        _p('ui', 'onboarding.js'),
+        _p('ui', 'launcher.js'),
+        _p('ui', 'floating_button.html'),
     ]),
     ('agent', [
-        'agent/__init__.py',
-        'agent/llm_config.py',
-        'agent/tools.py',
-        'agent/paper_agent.py',
+        _p('agent', '__init__.py'),
+        _p('agent', 'llm_config.py'),
+        _p('agent', 'tools.py'),
+        _p('agent', 'paper_agent.py'),
     ]),
     ('api', [
-        'api/__init__.py',
-        'api/server.py',
-        'api/engine_state.py',
+        _p('api', '__init__.py'),
+        _p('api', 'server.py'),
+        _p('api', 'engine_state.py'),
     ]),
     ('api/routes', [
-        'api/routes/__init__.py',
-        'api/routes/chat.py',
-        'api/routes/document.py',
-        'api/routes/settings.py',
-        'api/routes/onboarding.py',
-        'api/routes/agent.py',
-        'api/routes/events.py',
-        'api/routes/session.py',
+        _p('api', 'routes', '__init__.py'),
+        _p('api', 'routes', 'chat.py'),
+        _p('api', 'routes', 'document.py'),
+        _p('api', 'routes', 'settings.py'),
+        _p('api', 'routes', 'onboarding.py'),
+        _p('api', 'routes', 'agent.py'),
+        _p('api', 'routes', 'events.py'),
+        _p('api', 'routes', 'session.py'),
     ]),
     ('session', [
-        'session/__init__.py',
-        'session/session_manager.py',
+        _p('session', '__init__.py'),
+        _p('session', 'session_manager.py'),
     ]),
 ]
 
 OPTIONS = {
     'argv_emulation': False,
-    'iconfile': 'assets/icon.icns',
+    'iconfile': os.path.join(_HERE, 'assets', 'icon.icns'),
     'packages': [
+        # imp.find_module 호환 패키지만 명시
+        # (네임스페이스 패키지는 py2app이 자동 탐지)
         'rumps',
         'uvicorn',
         'fastapi',
         'starlette',
         'pydantic',
         'requests',
+        'faiss',
+        'rank_bm25',
+        'pypdf',
+        'fitz',
+        'torch',
+        'transformers',
+        'sentence_transformers',
+        'huggingface_hub',
+        'tokenizers',
+        'safetensors',
+        'numpy',
+        'scipy',
+        'tqdm',
+    ],
+    # langchain_*, langgraph 등 네임스페이스 패키지는 includes로 강제 포함
+    'includes': [
         'langchain_core',
         'langchain_ollama',
         'langchain_openai',
@@ -64,14 +99,8 @@ OPTIONS = {
         'langchain_classic',
         'langchain_community',
         'langchain_huggingface',
-        'faiss',
-        'rank_bm25',
-        'pypdf',
-        'fitz',
-        'sentence_transformers',
-        'torch',
-        'transformers',
         'langgraph',
+        'sentence_transformers',
     ],
     'excludes': [
         'streamlit',
