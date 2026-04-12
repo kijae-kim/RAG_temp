@@ -201,6 +201,32 @@ class WebviewBridge:
         with socket.socket() as s:
             return s.connect_ex(("localhost", 11434)) == 0
 
+    def open_file_dialog(self) -> str | None:
+        """PDF 파일 선택 다이얼로그. 선택된 경로를 반환하거나 None."""
+        win = self._window_ref[0]
+        if not win:
+            return None
+        result = win.create_file_dialog(
+            webview.OPEN_DIALOG,
+            allow_multiple=False,
+            file_types=('PDF files (*.pdf)',),
+        )
+        return result[0] if result else None
+
+    def set_paper_folder(self) -> str | None:
+        """논문 폴더 선택 → preferences.json에 저장 → 경로 반환."""
+        win = self._window_ref[0]
+        if not win:
+            return None
+        result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        if result:
+            path = result[0]
+            prefs = _load_prefs()
+            prefs["watched_folder"] = path
+            _save_prefs(prefs)
+            return path
+        return None
+
 
 # ── 진입점 ───────────────────────────────────────────────────────────────────
 def main() -> None:
