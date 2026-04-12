@@ -10,6 +10,9 @@ POST /api/settings/test    현재 설정으로 LLM 연결 테스트
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -39,13 +42,11 @@ class SettingsPayload(BaseModel):
 
 @router.get("")
 async def get_settings():
-    import json as _json
-    from pathlib import Path as _Path
-    _prefs_path = _Path("~/Library/Application Support/PDFChatbot/preferences.json").expanduser()
+    _prefs_path = Path("~/Library/Application Support/PDFChatbot/preferences.json").expanduser()
     _prefs: dict = {}
     if _prefs_path.exists():
         try:
-            _prefs = _json.loads(_prefs_path.read_text())
+            _prefs = json.loads(_prefs_path.read_text())
         except Exception:
             pass
 
