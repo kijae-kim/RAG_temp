@@ -56,6 +56,10 @@ function handleServerEvent(event) {
         `📄 ${event.paper_name}  ${event.chunks}청크`;
       hideStatusBanner();
       setBtnEnabled(true);
+      // 런처에서 보고 있을 경우 채팅 탭으로 자동 전환
+      if (!document.getElementById("pane-launcher").classList.contains("hidden")) {
+        switchTab("chat");
+      }
       appendBotMessage(`**${event.paper_name}** 로드 완료 (${event.chunks}청크)\n분석 탭에서 요약과 핵심 개념을 확인하세요.`);
       // 분석 탭 자동 트리거
       if (typeof triggerAnalyze === "function") triggerAnalyze();
@@ -170,8 +174,19 @@ async function clearSession() {
 
 // ── 탭 전환 ─────────────────────────────────────────────────────────────────
 function switchTab(name) {
-  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
   document.querySelectorAll(".tab-content").forEach((p) => p.classList.add("hidden"));
+
+  if (name === "launcher") {
+    // 런처: 탭 버튼 숨김, 런처 pane 표시
+    document.querySelector(".tabs").classList.add("hidden");
+    document.getElementById("pane-launcher").classList.remove("hidden");
+    if (typeof loadLauncher === "function") loadLauncher();
+    return;
+  }
+
+  // 일반 탭: 탭 버튼 표시
+  document.querySelector(".tabs").classList.remove("hidden");
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
   document.getElementById(`tab-${name}`).classList.add("active");
   document.getElementById(`pane-${name}`).classList.remove("hidden");
   if (name === "settings" && typeof loadSettings === "function") loadSettings();
