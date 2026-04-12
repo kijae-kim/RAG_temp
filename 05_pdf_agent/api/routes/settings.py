@@ -27,6 +27,7 @@ _MODEL_OPTIONS: dict[str, list[str]] = {
     "ollama":    ["qwen2.5:7b", "llama3.2:3b", "gemma3:4b", "phi4-mini"],
     "openai":    ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
     "anthropic": ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"],
+    "google":    ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"],
 }
 
 
@@ -38,12 +39,23 @@ class SettingsPayload(BaseModel):
 
 @router.get("")
 async def get_settings():
+    import json as _json
+    from pathlib import Path as _Path
+    _prefs_path = _Path("~/Library/Application Support/PDFChatbot/preferences.json").expanduser()
+    _prefs: dict = {}
+    if _prefs_path.exists():
+        try:
+            _prefs = _json.loads(_prefs_path.read_text())
+        except Exception:
+            pass
+
     provider = get_provider()
     return {
         "provider": provider,
         "model": get_llm_model(),
         "api_key_saved": bool(get_api_key(provider)),
         "model_options": _MODEL_OPTIONS,
+        "watched_folder": _prefs.get("watched_folder", ""),
     }
 
 
