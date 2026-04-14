@@ -83,7 +83,7 @@ class PDFChatbotApp(rumps.App):
     def __init__(self):
         super().__init__("🤖", quit_button=None)
         self._webview_proc: subprocess.Popen | None = None
-        self._last_watched_pdf: str = ""   # 감시 폴더 자동 로드 중복 방지
+        self._loaded_watched_pdfs: set[str] = set()  # 감시 폴더에서 로드한 PDF 전체 기록
         self._start_time = __import__("time").time()  # 서버 준비 대기용
 
         # 나중에 title을 바꿔야 하는 항목은 인스턴스 변수로 보관
@@ -190,7 +190,7 @@ class PDFChatbotApp(rumps.App):
                 prefs = _load_prefs()
                 prefs["watched_folder"] = folder_path
                 _save_prefs(prefs)
-                self._last_watched_pdf = ""  # 새 폴더 설정 시 감지 초기화
+                self._loaded_watched_pdfs.clear()  # 새 폴더 설정 시 기록 초기화
                 self._watched_folder_item.title = f"논문 폴더: {Path(folder_path).name}"
                 rumps.notification("PDF 챗봇", "논문 폴더 설정", f"{Path(folder_path).name} 폴더를 감시합니다.")
         except Exception as exc:
@@ -230,14 +230,19 @@ class PDFChatbotApp(rumps.App):
         return False
 
     # ── 감시 폴더: 열린 PDF 파일 감지 ───────────────────────────────────────
+    # 파일이 이 시간(초) 이내에 마지막으로 열렸을 때만 자동 로드
+    _WATCH_WINDOW_SEC = 10
+
     @rumps.timer(3)
     def _check_watched_folder(self, _) -> None:
         """
         3초마다 lsof로 감시 폴더 내 열린 PDF를 감지해 자동 로드한다.
-        AppleScript 대신 lsof를 사용해 앱 종류에 무관하게 동작.
+        최근 10초 이내에 접근된 파일만 대상으로 한다 (기존에 열려있던 PDF 제외).
         서버 준비 전 15초 이내에는 스킵한다.
         """
-        if __import__("time").time() - self._start_time < 15:
+        import time as _time
+        now = _time.time()
+        if now - self._start_time < 15:
             return  # 서버 아직 준비 중
 
         prefs = _load_prefs()
@@ -251,23 +256,28 @@ class PDFChatbotApp(rumps.App):
                 ["lsof", "+d", watched, "-F", "n"],
                 capture_output=True, text=True, timeout=3,
             )
-            # 열린 PDF 후보를 모두 수집 — 이미 로드한 파일은 제외
+            # 최근 WATCH_WINDOW_SEC 안에 열린 PDF만 수집 — 이미 로드한 파일은 제외
             candidates = []
             for line in result.stdout.splitlines():
                 if line.startswith("n") and line.lower().endswith(".pdf"):
                     candidate = line[1:]
                     p = Path(candidate)
-                    if p.exists() and candidate != self._last_watched_pdf:
-                        candidates.append(candidate)
+                    try:
+                        if (p.exists()
+                                and candidate not in self._loaded_watched_pdfs
+                                and now - p.stat().st_atime < self._WATCH_WINDOW_SEC):
+                            candidates.append(candidate)
+                    except OSError:
+                        continue
 
             if not candidates:
                 return
 
-            # 여러 PDF가 열려 있을 때 가장 최근에 액세스된 파일 선택
+            # 여러 PDF가 최근에 열렸을 때 가장 최근에 액세스된 파일 선택
             pdf_path = max(candidates, key=lambda p: Path(p).stat().st_atime)
 
-            if self._load_paper(pdf_path):   # 성공 시에만 중복 방지 플래그 설정
-                self._last_watched_pdf = pdf_path
+            if self._load_paper(pdf_path):   # 성공 시에만 중복 방지 기록 추가
+                self._loaded_watched_pdfs.add(pdf_path)
         except Exception:
             pass
 
