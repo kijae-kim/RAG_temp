@@ -8,6 +8,7 @@ preferences.json에서 provider / model / api_key를 읽어 LangChain 모델 인
   - ollama   : 로컬 Ollama (기본값, 인터넷 불필요)
   - openai   : OpenAI API (GPT-4o, GPT-4o-mini 등)
   - anthropic: Anthropic API (claude-3-5-sonnet 등)
+  - google   : Google Gemini API (gemini-2.0-flash 등)
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ _DEFAULT_MODEL: dict[str, str] = {
     "ollama":    "qwen2.5:7b",
     "openai":    "gpt-4o-mini",
     "anthropic": "claude-3-5-haiku-20241022",
+    "google":    "gemini-2.0-flash",
 }
 _DEFAULT_TEMPERATURE = 0.0
 
@@ -52,7 +54,8 @@ def get_provider() -> str:
 def get_llm_model() -> str:
     prefs = _load_prefs()
     provider = prefs.get("provider", _DEFAULT_PROVIDER)
-    return prefs.get("llm_model", _DEFAULT_MODEL.get(provider, "qwen2.5:7b"))
+    model = prefs.get("llm_model", "")
+    return model or _DEFAULT_MODEL.get(provider, "qwen2.5:7b")
 
 
 def get_llm_temperature() -> float:
@@ -100,6 +103,13 @@ def get_chat_llm(temperature: float | None = None):
         if not api_key:
             raise ValueError("Anthropic API 키가 설정되지 않았습니다.")
         return ChatAnthropic(model=model, temperature=temp, api_key=api_key)
+
+    if provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        api_key = get_api_key("google")
+        if not api_key:
+            raise ValueError("Google API 키가 설정되지 않았습니다.")
+        return ChatGoogleGenerativeAI(model=model, temperature=temp, google_api_key=api_key)
 
     # 기본: ollama
     from langchain_ollama import ChatOllama

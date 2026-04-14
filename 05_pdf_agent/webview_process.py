@@ -206,11 +206,16 @@ class WebviewBridge:
         win = self._window_ref[0]
         if not win:
             return None
-        result = win.create_file_dialog(
-            webview.OPEN_DIALOG,
-            allow_multiple=False,
-            file_types=('PDF files (*.pdf)',),
-        )
+        # 다이얼로그가 챗봇 창 뒤로 숨지 않도록 on_top을 일시 해제
+        win.on_top = False
+        try:
+            result = win.create_file_dialog(
+                webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=('PDF files (*.pdf)',),
+            )
+        finally:
+            win.on_top = True
         return result[0] if result else None
 
     def set_paper_folder(self) -> str | None:
@@ -218,7 +223,11 @@ class WebviewBridge:
         win = self._window_ref[0]
         if not win:
             return None
-        result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        win.on_top = False
+        try:
+            result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        finally:
+            win.on_top = True
         if result:
             path = result[0]
             prefs = _load_prefs()
