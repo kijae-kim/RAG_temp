@@ -84,6 +84,7 @@ class PDFChatbotApp(rumps.App):
         super().__init__("🤖", quit_button=None)
         self._webview_proc: subprocess.Popen | None = None
         self._loaded_watched_pdfs: set[str] = set()  # 감시 폴더에서 로드한 PDF 전체 기록
+        self._current_pdf_path: str = ""              # 현재 로드된 PDF 경로
         self._start_time = __import__("time").time()  # 서버 준비 대기용
 
         # 나중에 title을 바꿔야 하는 항목은 인스턴스 변수로 보관
@@ -202,9 +203,28 @@ class PDFChatbotApp(rumps.App):
         subprocess.Popen(["open", str(sessions_dir)])
 
     def _quit_app(self, _=None) -> None:
+        if self._current_pdf_path:
+            response = rumps.alert(
+                title="종료",
+                message="현재 열려 있는 PDF도 함께 닫을까요?",
+                ok="PDF도 닫기",
+                cancel="챗봇만 종료",
+            )
+            if response == 1:  # "PDF도 닫기" 선택
+                self._close_pdf_in_preview(self._current_pdf_path)
+
         if self._webview_proc and self._webview_proc.poll() is None:
             self._webview_proc.terminate()
         rumps.quit_application()
+
+    def _close_pdf_in_preview(self, pdf_path: str) -> None:
+        """Preview에서 해당 PDF 문서를 닫는다."""
+        escaped = pdf_path.replace('"', '\\"')
+        script = (
+            f'tell application "Preview" to '
+            f'close (every document whose path is "{escaped}")'
+        )
+        subprocess.run(["osascript", "-e", script], capture_output=True)
 
     # ── PDF 로드 ─────────────────────────────────────────────────────────────
     def _load_paper(self, pdf_path: str) -> bool:
@@ -219,6 +239,7 @@ class PDFChatbotApp(rumps.App):
             if resp.status_code == 202:
                 self.title = "📄"
                 self._current_paper_item.title = f"현재 논문: {paper_name}"
+                self._current_pdf_path = pdf_path
                 self._open_chat()
                 self._build_recent_submenu()
                 return True
