@@ -12,6 +12,7 @@ let _modelOptions = {
   ollama:    ["qwen2.5:7b", "llama3.2:3b", "gemma3:4b", "phi4-mini"],
   openai:    ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
   anthropic: ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"],
+  google:    ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"],
 };
 let _currentProvider = "ollama";
 
@@ -111,6 +112,8 @@ async function saveSettings() {
         document.getElementById("api-key-input").value = "";
         document.getElementById("apikey-hint").textContent = "✅ API 키가 저장되어 있습니다. 변경하려면 새로 입력하세요.";
       }
+      // 채팅 화면의 모델 뱃지 갱신
+      if (typeof loadModelBadge === "function") loadModelBadge();
     } else {
       _showMsg(data.error || "저장 실패", "error");
     }

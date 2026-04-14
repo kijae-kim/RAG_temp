@@ -61,6 +61,10 @@ function handleServerEvent(event) {
         switchTab("chat");
       }
       appendBotMessage(`**${event.paper_name}** 로드 완료 (${event.chunks}청크)\n분석 탭에서 요약과 핵심 개념을 확인하세요.`);
+      // PDF를 Preview에서 열기 (메뉴바 로드 등 launcher 외 경로 대응)
+      if (event.pdf_path && window.pywebview?.api?.open_pdf) {
+        window.pywebview.api.open_pdf(event.pdf_path);
+      }
       // 분석 탭 자동 트리거
       if (typeof triggerAnalyze === "function") triggerAnalyze();
       break;
@@ -385,9 +389,22 @@ async function closeWindow() {
   }
 }
 
+// ── 모델 뱃지 ────────────────────────────────────────────────────────────────
+async function loadModelBadge() {
+  try {
+    const res = await fetch(`${API}/api/settings`);
+    const data = await res.json();
+    const badge = document.getElementById("model-badge");
+    if (badge && data.model) {
+      badge.textContent = `${data.provider} / ${data.model}`;
+    }
+  } catch (_) {}
+}
+
 // ── 키보드 단축키 ────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   connectEventStream();
+  loadModelBadge();
 
   document.getElementById("question-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

@@ -238,6 +238,19 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── 모델 뱃지 ───────────────────────────────────────────────────────────── */
+.model-badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  align-self: flex-start;
+  letter-spacing: 0.3px;
+  user-select: none;
+}
+
 /* ── 입력 영역 ──────────────────────────────────────────────────────────── */
 .input-area {
   padding: 10px 14px;

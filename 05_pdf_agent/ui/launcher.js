@@ -88,6 +88,11 @@ async function openNewPdf() {
   }
   if (!path) return;
 
+  // 인덱싱과 병렬로 즉시 PDF 열기 — 사용자가 읽으면서 로딩 기다릴 수 있음
+  if (window.pywebview?.api?.open_pdf) {
+    window.pywebview.api.open_pdf(path);
+  }
+
   const res = await fetch(`${LAUNCHER_API}/api/load`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -129,6 +134,11 @@ async function resumeSession(hash) {
   // 채팅 기록 복원
   if (data.chat_messages && data.chat_messages.length) {
     _restoreChatHistory(data.chat_messages);
+  }
+
+  // 이전에 읽던 PDF를 Preview에서 열기
+  if (data.pdf_path && window.pywebview?.api?.open_pdf) {
+    window.pywebview.api.open_pdf(data.pdf_path);
   }
 
   clearInterval(_launcherPollId);

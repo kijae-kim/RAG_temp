@@ -201,6 +201,10 @@ class WebviewBridge:
         with socket.socket() as s:
             return s.connect_ex(("localhost", 11434)) == 0
 
+    def open_pdf(self, path: str) -> None:
+        """PDF를 Preview에서 연다 (인덱싱과 병렬로 즉시 실행)."""
+        subprocess.Popen(["open", "-a", "Preview", path])
+
     def open_file_dialog(self) -> str | None:
         """PDF 파일 선택 다이얼로그. 선택된 경로를 반환하거나 None."""
         win = self._window_ref[0]

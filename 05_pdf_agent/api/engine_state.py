@@ -149,6 +149,7 @@ def load_pdf_async(pdf_path: str) -> None:
             push_event({
                 "type": "paper_ready",
                 "paper_name": paper_name,
+                "pdf_path": pdf_path,
                 "chunks": chatbot.get_doc_info().get("chunks", 0),
             })
             logger.info("PDF 인덱싱 완료: %s", paper_name)

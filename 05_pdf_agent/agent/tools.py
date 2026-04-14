@@ -116,40 +116,24 @@ def extract_concepts(chatbot) -> list[str]:
 
 
 # ── intent 분류 ──────────────────────────────────────────────────────────────
-_SCOPE_PROMPT = """You help an AI assistant that answers questions about an academic paper.
-Decide if the AI should attempt to answer this question using the paper.
+# scope + intent를 단일 LLM 호출로 통합 (2회 → 1회)
+_CLASSIFY_PROMPT = """You are a classifier for an academic paper Q&A assistant.
+Classify the user question into exactly one intent. Output one word only.
 
-Say "yes" if the question:
-- Asks about the paper's authors, institution, abstract, title, or publication info (e.g. "저자가 누구야?", "초록 해석해줘")
-- Asks about any academic concept, method, model, term, or result (e.g. "LSTM이 뭐야?", "vanishing gradient란?")
-- Requests a summary, quiz, explanation, or translation of the paper content
-- Asks about comparisons or reasons within the paper's topic
+Intents:
+- quiz      : explicitly requesting a quiz/test/problem ("퀴즈 내줘", "문제 출제", "테스트해줘")
+- summarize : explicitly requesting a summary of the whole paper ("요약해줘", "정리해줘", "핵심이 뭐야", "결론 요약")
+- explain   : asking to explain a concept, term, or mechanism ("~가 뭐야?", "~란?", "설명해줘", "차이가 뭐야?", "역할이 뭐야?")
+- qa        : specific factual question about the paper (author, result, method, number, comparison)
+- out_of_scope : code implementation requests OR topics completely unrelated to any academic paper
+                 (날씨, 주식, 점심, 코드 짜줘, PyTorch 구현, SNS 연락처)
 
-Say "no" ONLY if the question:
-- Asks for code implementation (e.g. "PyTorch로 구현해줘", "코드 짜줘")
-- Asks about a completely unrelated topic with no connection to the paper (e.g. "오늘 날씨", "주식 추천", "점심 뭐 먹을까")
-- Asks about information clearly outside any academic paper (e.g. "저자 SNS 알려줘", "저자 연락처가 뭐야?")
-
-Default to "yes" when unsure. Questions about the paper's content, metadata, or academic topics should almost always be "yes".
-
-Question: {question}
-Answer (yes or no):"""
-
-_INTENT_PROMPT = """Classify the intent of the following question. Output exactly one word.
+Rules:
+- Default to "qa" when unsure — academic and conceptual questions are almost never out_of_scope
+- "~가 뭐야?" about a concept → explain (not qa)
+- Comparison/reason questions → qa (not summarize)
 
 Question: {question}
-
-Categories:
-- quiz: ONLY when explicitly requesting a quiz/test/problem ("퀴즈 내줘", "문제 출제해줘", "테스트해줘")
-- summarize: ONLY when explicitly requesting a summary/overview of the whole paper ("요약해줘", "정리해줘", "핵심이 뭐야", "결론 요약")
-- explain: asking to explain or describe a specific concept, term, or mechanism
-    Examples: "~가 뭐야?", "~을 설명해줘", "~란?", "~의 역할이 뭐야?", "~의 차이가 뭐야?", "~하는 이유가 뭐야?"
-- qa: specific factual question about the paper (who, how many, which, what method, what result)
-    Examples: "누가 만들었어?", "몇 개야?", "어떤 task를 썼어?", "어떤 방법과 비교했어?"
-
-Note: "~가 뭐야?", "~이 뭐야?" about a concept → explain (NOT quiz, NOT qa)
-Note: comparison/reason questions ("이유가 뭐야?", "비교한 방법이 뭐야?") → qa (NOT summarize)
-
 Answer (one word only):"""
 
 
@@ -168,9 +152,8 @@ _OOS_KEYWORDS: list[str] = [
 def classify_intent(question: str) -> str:
     """
     질문 의도를 분류한다 (동기).
-    1단계: 키워드 사전 필터 (확실한 케이스 즉시 처리)
-    2단계: LLM — 논문 관련 여부 (yes/no)
-    3단계: LLM — explain/quiz/summarize/qa 분류
+    1단계: 키워드 사전 필터 (LLM 없이 즉시 처리)
+    2단계: LLM — scope + intent 단일 호출 (기존 2회 → 1회)
     반환값: "qa" | "explain" | "quiz" | "summarize" | "out_of_scope"
     """
     q_lower = question.lower()
@@ -184,19 +167,12 @@ def classify_intent(question: str) -> str:
         if any(kw in question for kw in keywords):
             return intent
 
+    # 2단계: LLM 단일 호출로 scope + intent 분류
     from agent.llm_config import get_intent_llm
     llm = get_intent_llm()
-
-    # 2단계: 논문 관련 여부
-    scope_result = llm.invoke(_SCOPE_PROMPT.format(question=question))
-    scope = scope_result.content.strip().lower()
-    if "no" in scope and "yes" not in scope:
-        return "out_of_scope"
-
-    # 3단계: intent 분류
-    intent_result = llm.invoke(_INTENT_PROMPT.format(question=question))
-    content = intent_result.content.strip().lower()
-    for intent in ("explain", "quiz", "summarize", "qa"):
+    result = llm.invoke(_CLASSIFY_PROMPT.format(question=question))
+    content = result.content.strip().lower()
+    for intent in ("out_of_scope", "explain", "quiz", "summarize", "qa"):
         if intent in content:
             return intent
     return "qa"
