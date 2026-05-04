@@ -214,7 +214,7 @@ class WebviewBridge:
         win.on_top = False
         try:
             result = win.create_file_dialog(
-                webview.OPEN_DIALOG,
+                webview.FileDialog.OPEN,
                 allow_multiple=False,
                 file_types=('PDF files (*.pdf)',),
             )

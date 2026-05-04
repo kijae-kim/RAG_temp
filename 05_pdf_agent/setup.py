@@ -24,8 +24,11 @@ def _p(*parts):
 _MINI_PROJECT = os.path.join(_HERE, '..', '04_mini_project')
 
 DATA_FILES = [
-    # rag_engine.py를 Resources/ 루트에 포함 (py2app sys.path에 포함됨)
-    ('', [os.path.join(_MINI_PROJECT, 'rag_engine.py')]),
+    # rag_engine.py, webview_process.py를 Resources/ 루트에 포함 (py2app sys.path에 포함됨)
+    ('', [
+        os.path.join(_MINI_PROJECT, 'rag_engine.py'),
+        _p('webview_process.py'),
+    ]),
     ('ui', [
         _p('ui', 'index.html'),
         _p('ui', 'chat.js'),
@@ -89,6 +92,13 @@ OPTIONS = {
         'numpy',
         'scipy',
         'tqdm',
+        # pywebview + macOS 백엔드 의존성
+        'webview',
+        'WebKit',
+        'Quartz',
+        'Cocoa',
+        'AppKit',
+        'Foundation',
     ],
     # langchain_*, langgraph 등 네임스페이스 패키지는 includes로 강제 포함
     'includes': [

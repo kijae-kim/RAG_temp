@@ -123,7 +123,8 @@ Classify the user question into exactly one intent. Output one word only.
 Intents:
 - quiz      : explicitly requesting a quiz/test/problem ("퀴즈 내줘", "문제 출제", "테스트해줘")
 - summarize : explicitly requesting a summary of the whole paper ("요약해줘", "정리해줘", "핵심이 뭐야", "결론 요약")
-- explain   : asking to explain a concept, term, or mechanism ("~가 뭐야?", "~란?", "설명해줘", "차이가 뭐야?", "역할이 뭐야?")
+- explain   : asking to explain or translate a concept, term, section, or passage
+              ("~가 뭐야?", "~란?", "설명해줘", "차이가 뭐야?", "역할이 뭐야?", "한국어로 번역", "번역해줘", "translate")
 - qa        : specific factual question about the paper (author, result, method, number, comparison)
 - out_of_scope : code implementation requests OR topics completely unrelated to any academic paper
                  (날씨, 주식, 점심, 코드 짜줘, PyTorch 구현, SNS 연락처)
@@ -131,6 +132,7 @@ Intents:
 Rules:
 - Default to "qa" when unsure — academic and conceptual questions are almost never out_of_scope
 - "~가 뭐야?" about a concept → explain (not qa)
+- Translation requests ("번역해줘", "translate to Korean") → explain (not out_of_scope)
 - Comparison/reason questions → qa (not summarize)
 
 Question: {question}
@@ -141,6 +143,7 @@ _KEYWORD_MAP: list[tuple[list[str], str]] = [
     # 키워드가 포함되면 즉시 해당 intent 반환 (LLM 호출 없음)
     (["퀴즈", "문제 출제", "문제를 출제", "테스트해줘", "문제 내줘"], "quiz"),
     (["요약해줘", "요약 해줘", "정리해줘", "핵심이 뭐야", "결론 요약", "전체 요약"], "summarize"),
+    (["번역해줘", "번역 해줘", "한국어로 번역", "영어로 번역", "translate"], "explain"),
 ]
 
 _OOS_KEYWORDS: list[str] = [

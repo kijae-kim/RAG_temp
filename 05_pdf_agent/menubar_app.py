@@ -155,9 +155,16 @@ class PDFChatbotApp(rumps.App):
     def _open_chat(self, _=None) -> None:
         """채팅 창이 없으면 실행, 이미 실행 중이면 무시."""
         if self._webview_proc is None or self._webview_proc.poll() is not None:
-            self._webview_proc = subprocess.Popen(
-                [sys.executable, str(_THIS_DIR / "webview_process.py")]
-            )
+            webview_script = _THIS_DIR / "webview_process.py"
+            if not webview_script.exists():
+                rumps.notification("PDF 챗봇", "오류", "webview_process.py를 찾을 수 없습니다.")
+                return
+            try:
+                self._webview_proc = subprocess.Popen(
+                    [sys.executable, str(webview_script)]
+                )
+            except Exception as exc:
+                rumps.notification("PDF 챗봇", "창 열기 실패", str(exc))
 
     def _select_paper(self, _=None) -> None:
         """NSOpenPanel로 PDF 파일을 선택한다."""
