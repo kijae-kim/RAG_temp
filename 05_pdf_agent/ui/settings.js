@@ -22,7 +22,10 @@ async function loadSettings() {
     const res = await fetch(`${API}/api/settings`);
     const data = await res.json();
 
-    if (data.model_options) _modelOptions = data.model_options;
+    // 서버 응답을 기본값과 머지 — 서버가 일부 키를 빠뜨려도 기본값 유지
+    if (data.model_options) {
+      _modelOptions = Object.assign({}, _modelOptions, data.model_options);
+    }
     _currentProvider = data.provider || "ollama";
 
     _renderProviderBtns(_currentProvider);
@@ -71,6 +74,16 @@ function _renderModelSelect(provider, selected) {
 function selectProvider(provider) {
   _currentProvider = provider;
   _renderProviderBtns(provider);
+  // 모델 목록이 비어 있으면 JS 기본값으로 폴백
+  if (!_modelOptions[provider] || _modelOptions[provider].length === 0) {
+    const fallback = {
+      ollama:    ["qwen2.5:7b", "llama3.2:3b", "gemma3:4b", "phi4-mini"],
+      openai:    ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+      anthropic: ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"],
+      google:    ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"],
+    };
+    _modelOptions[provider] = fallback[provider] || [];
+  }
   _renderModelSelect(provider, _modelOptions[provider]?.[0]);
 
   const apikeySection = document.getElementById("apikey-section");

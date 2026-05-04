@@ -517,7 +517,15 @@ textarea::placeholder { color: var(--text-dim); }
 .provider-btn.active {
   background: var(--accent);
   border-color: var(--accent);
+  border-width: 2px;
   color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.provider-btn.active::before {
+  content: "✓ ";
+  font-size: 11px;
 }
 
 .provider-btn:hover:not(.active) {
