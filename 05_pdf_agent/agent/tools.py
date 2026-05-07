@@ -116,28 +116,6 @@ def extract_concepts(chatbot) -> list[str]:
 
 
 # ── intent 분류 ──────────────────────────────────────────────────────────────
-# scope + intent를 단일 LLM 호출로 통합 (2회 → 1회)
-_CLASSIFY_PROMPT = """You are a classifier for an academic paper Q&A assistant.
-Classify the user question into exactly one intent. Output one word only.
-
-Intents:
-- quiz      : explicitly requesting a quiz/test/problem ("퀴즈 내줘", "문제 출제", "테스트해줘")
-- summarize : explicitly requesting a summary of the whole paper ("요약해줘", "정리해줘", "핵심이 뭐야", "결론 요약")
-- explain   : asking to explain or translate a concept, term, section, or passage
-              ("~가 뭐야?", "~란?", "설명해줘", "차이가 뭐야?", "역할이 뭐야?", "한국어로 번역", "번역해줘", "translate")
-- qa        : specific factual question about the paper (author, result, method, number, comparison)
-- out_of_scope : code implementation requests OR topics completely unrelated to any academic paper
-                 (날씨, 주식, 점심, 코드 짜줘, PyTorch 구현, SNS 연락처)
-
-Rules:
-- Default to "qa" when unsure — academic and conceptual questions are almost never out_of_scope
-- "~가 뭐야?" about a concept → explain (not qa)
-- Translation requests ("번역해줘", "translate to Korean") → explain (not out_of_scope)
-- Comparison/reason questions → qa (not summarize)
-
-Question: {question}
-Answer (one word only):"""
-
 
 _KEYWORD_MAP: list[tuple[list[str], str]] = [
     # 키워드가 포함되면 즉시 해당 intent 반환 (LLM 호출 없음)
@@ -151,12 +129,122 @@ _OOS_KEYWORDS: list[str] = [
     "gpt", "bert", "chatgpt", "openai", "몇 살", "나이가", "살이야",
 ]
 
+# ── 임베딩 유사도 분류기 ──────────────────────────────────────────────────────
+_EMBED_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+_EMBED_THRESHOLD  = 0.55
+
+_INTENT_EXAMPLES: dict[str, list[str]] = {
+    "summarize": [
+        "이 논문 요약해줘",
+        "이 논문이 어떤 내용이야",
+        "이 논문의 핵심 주제가 뭐야",
+        "이 연구가 다루는 핵심이 뭐야",
+        "전체적으로 정리해줘",
+        "이 논문의 주요 결과가 뭐야",
+        "이 연구의 결론을 알려줘",
+    ],
+    "explain": [
+        "BM25가 뭐야",
+        "BM25가 어떻게 동작해",
+        "attention 설명해줘",
+        "attention mechanism 설명해줘",
+        "이 개념이 무슨 뜻이야",
+        "앙상블 검색이란 뭐야",
+        "한국어로 번역해줘",
+        "이 단어 뜻이 뭐야",
+    ],
+    "qa": [
+        "이 논문의 저자가 누구야",
+        "어떤 데이터셋을 사용했어",
+        "기존 방법보다 성능이 얼마나 좋아",
+        "실험 결과 수치가 어떻게 돼",
+        "이 방법의 한계점이 뭐야",
+        "어떤 모델과 비교했어",
+        "왜 이 방법을 선택했어",
+    ],
+    "quiz": [
+        "퀴즈 내줘",
+        "이 논문으로 문제 만들어줘",
+        "핵심 개념 퀴즈 출제해줘",
+        "테스트 문제 내줘",
+        "이 내용으로 시험 문제 만들어줘",
+    ],
+    "out_of_scope": [
+        "오늘 날씨 어때",
+        "코드로 구현해줘",
+        "점심 뭐 먹을까",
+        "주식 추천해줘",
+        "논문이랑 관계없는 질문이야",
+    ],
+}
+
+# LLM 폴백용 프롬프트 (임베딩 유사도가 낮은 희귀 케이스에만 사용)
+_CLASSIFY_PROMPT = """You are a classifier for an academic paper Q&A assistant.
+Classify the user question into exactly one intent. Output one word only.
+
+Intents:
+- quiz      : explicitly requesting a quiz/test/problem
+- summarize : requesting a summary or overview of the whole paper
+- explain   : asking to explain/translate a specific concept, term, or passage
+- qa        : specific factual question about the paper (author, result, method, number)
+- out_of_scope : code implementation requests OR topics unrelated to any academic paper
+
+Rules:
+- Default to "qa" when unsure
+- Translation requests → explain
+- Comparison/reason questions → qa
+
+Question: {question}
+Answer (one word only):"""
+
+
+class _EmbeddingIntentClassifier:
+    """임베딩 코사인 유사도로 의도를 분류하는 싱글턴 분류기. 첫 호출 시 lazy 초기화."""
+
+    def __init__(self) -> None:
+        self._embeddings = None
+        self._intent_vecs: dict[str, list] = {}
+
+    def _ensure_loaded(self) -> None:
+        if self._embeddings is not None:
+            return
+        from langchain_huggingface import HuggingFaceEmbeddings
+        self._embeddings = HuggingFaceEmbeddings(
+            model_name=_EMBED_MODEL_NAME,
+            model_kwargs={"device": "cpu"},
+        )
+        for intent, examples in _INTENT_EXAMPLES.items():
+            self._intent_vecs[intent] = self._embeddings.embed_documents(examples)
+
+    def classify(self, question: str) -> tuple[str, float]:
+        """(intent, max_cosine_similarity) 반환."""
+        import numpy as np
+
+        self._ensure_loaded()
+        q = np.array(self._embeddings.embed_query(question))
+        q_norm = np.linalg.norm(q) + 1e-9
+
+        best_intent, best_score = "qa", 0.0
+        for intent, vecs in self._intent_vecs.items():
+            for v in vecs:
+                v = np.array(v)
+                score = float(np.dot(q, v) / (q_norm * (np.linalg.norm(v) + 1e-9)))
+                if score > best_score:
+                    best_score = score
+                    best_intent = intent
+
+        return best_intent, best_score
+
+
+_embedding_classifier = _EmbeddingIntentClassifier()
+
 
 def classify_intent(question: str) -> str:
     """
     질문 의도를 분류한다 (동기).
-    1단계: 키워드 사전 필터 (LLM 없이 즉시 처리)
-    2단계: LLM — scope + intent 단일 호출 (기존 2회 → 1회)
+    1단계: 키워드 사전 필터 (즉시 처리)
+    2단계: 임베딩 유사도 분류 (LLM 없이 ~10ms)
+    3단계: LLM 폴백 (유사도 낮은 희귀 케이스)
     반환값: "qa" | "explain" | "quiz" | "summarize" | "out_of_scope"
     """
     q_lower = question.lower()
@@ -170,7 +258,15 @@ def classify_intent(question: str) -> str:
         if any(kw in question for kw in keywords):
             return intent
 
-    # 2단계: LLM 단일 호출로 scope + intent 분류
+    # 2단계: 임베딩 유사도 분류
+    try:
+        intent, score = _embedding_classifier.classify(question)
+        if score >= _EMBED_THRESHOLD:
+            return intent
+    except Exception:
+        pass  # 임베딩 모델 오류 시 LLM 폴백으로 진행
+
+    # 3단계: LLM 폴백
     from agent.llm_config import get_intent_llm
     llm = get_intent_llm()
     result = llm.invoke(_CLASSIFY_PROMPT.format(question=question))
