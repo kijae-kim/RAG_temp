@@ -65,6 +65,18 @@ def stream_summarize(chatbot, question: str, session_id: str, style: str = "defa
     yield from chatbot.stream_chat(_apply_style(base, style), session_id)
 
 
+def stream_confirm(chatbot, question: str, session_id: str, style: str = "default") -> Generator[str, None, None]:
+    """사용자 주장의 맞고 틀림을 확인하고 근거를 설명."""
+    base = (
+        f"사용자가 다음과 같이 주장하고 있습니다.\n주장: {question}\n\n"
+        "논문 내용을 바탕으로 아래 형식으로 한국어로 답변하세요.\n"
+        "- 주장이 맞으면: '맞습니다.'로 시작해서 논문에서의 근거를 설명하세요.\n"
+        "- 주장이 틀리면: '아닙니다.'로 시작해서 올바른 내용을 설명하고, "
+        "헷갈린 이유와 추가로 알면 좋은 내용을 덧붙이세요."
+    )
+    yield from chatbot.stream_chat(_apply_style(base, style), session_id)
+
+
 def stream_out_of_scope(chatbot, question: str, session_id: str, style: str = "default") -> Generator[str, None, None]:
     """논문 범위 밖 질문 — 즉시 거절 메시지 반환."""
     yield "죄송합니다. 현재 로드된 논문의 범위를 벗어난 질문입니다.\n\n"
@@ -125,6 +137,7 @@ _KEYWORD_MAP: list[tuple[list[str], str]] = [
     (["퀴즈", "문제 출제", "문제를 출제", "테스트해줘", "문제 내줘"], "quiz"),
     (["요약해줘", "요약 해줘", "정리해줘", "핵심이 뭐야", "결론 요약", "전체 요약"], "summarize"),
     (["번역해줘", "번역 해줘", "한국어로 번역", "영어로 번역", "translate"], "explain"),
+    (["인거네", "맞지", "그렇지", "맞아?", "맞나요", "인가요", "죠?", "잖아"], "confirm"),
 ]
 
 _OOS_KEYWORDS: list[str] = [
@@ -171,6 +184,13 @@ _INTENT_EXAMPLES: dict[str, list[str]] = {
         "핵심 개념 퀴즈 출제해줘",
         "테스트 문제 내줘",
         "이 내용으로 시험 문제 만들어줘",
+    ],
+    "confirm": [
+        "이 방법이 더 빠른 거 맞지",
+        "BLEU점수는 번역 성능 지표인거네",
+        "이 논문이 트랜스포머를 사용한 거잖아",
+        "앙상블이 단일 모델보다 항상 좋은 건 아니죠",
+        "이 결과가 기존보다 개선된 거 맞나요",
     ],
     "out_of_scope": [
         "오늘 날씨 어때",
@@ -295,5 +315,6 @@ STREAM_FN_MAP: dict[str, callable] = {
     "explain":       stream_explain,
     "quiz":          stream_quiz,
     "summarize":     stream_summarize,
+    "confirm":       stream_confirm,
     "out_of_scope":  stream_out_of_scope,
 }
