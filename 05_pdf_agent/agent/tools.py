@@ -11,7 +11,10 @@ PDFChatbot 위에서 동작하는 스트리밍 도구 함수.
 
 from __future__ import annotations
 
+import logging
 from typing import Generator
+
+logger = logging.getLogger(__name__)
 
 # ── 답변 스타일 prefix ────────────────────────────────────────────────────────
 _STYLE_PREFIX: dict[str, str] = {
@@ -217,21 +220,26 @@ class _EmbeddingIntentClassifier:
             self._intent_vecs[intent] = self._embeddings.embed_documents(examples)
 
     def classify(self, question: str) -> tuple[str, float]:
-        """(intent, max_cosine_similarity) 반환."""
+        """(intent, max_cosine_similarity) 반환. intent별 최고 점수를 로그로 출력."""
         import numpy as np
 
         self._ensure_loaded()
         q = np.array(self._embeddings.embed_query(question))
         q_norm = np.linalg.norm(q) + 1e-9
 
-        best_intent, best_score = "qa", 0.0
+        intent_scores: dict[str, float] = {}
         for intent, vecs in self._intent_vecs.items():
-            for v in vecs:
-                v = np.array(v)
-                score = float(np.dot(q, v) / (q_norm * (np.linalg.norm(v) + 1e-9)))
-                if score > best_score:
-                    best_score = score
-                    best_intent = intent
+            max_sim = max(
+                float(np.dot(q, np.array(v)) / (q_norm * (np.linalg.norm(v) + 1e-9)))
+                for v in vecs
+            )
+            intent_scores[intent] = max_sim
+
+        best_intent = max(intent_scores, key=intent_scores.__getitem__)
+        best_score  = intent_scores[best_intent]
+
+        scores_str = "  ".join(f"{k}={v:.3f}" for k, v in intent_scores.items())
+        logger.info("[intent] Q=\"%s\"  %s  → %s (%.3f)", question, scores_str, best_intent, best_score)
 
         return best_intent, best_score
 
@@ -251,11 +259,13 @@ def classify_intent(question: str) -> str:
 
     # 1단계-A: out_of_scope 키워드 사전 필터
     if any(kw in q_lower for kw in _OOS_KEYWORDS):
+        logger.info("[intent] keyword→out_of_scope  Q=\"%s\"", question)
         return "out_of_scope"
 
     # 1단계-B: intent 키워드 사전 필터
     for keywords, intent in _KEYWORD_MAP:
         if any(kw in question for kw in keywords):
+            logger.info("[intent] keyword→%s  Q=\"%s\"", intent, question)
             return intent
 
     # 2단계: 임베딩 유사도 분류
@@ -263,8 +273,9 @@ def classify_intent(question: str) -> str:
         intent, score = _embedding_classifier.classify(question)
         if score >= _EMBED_THRESHOLD:
             return intent
-    except Exception:
-        pass  # 임베딩 모델 오류 시 LLM 폴백으로 진행
+        logger.info("[intent] embedding score=%.3f < threshold, falling back to LLM", score)
+    except Exception as e:
+        logger.warning("[intent] embedding error: %s, falling back to LLM", e)
 
     # 3단계: LLM 폴백
     from agent.llm_config import get_intent_llm
@@ -273,6 +284,7 @@ def classify_intent(question: str) -> str:
     content = result.content.strip().lower()
     for intent in ("out_of_scope", "explain", "quiz", "summarize", "qa"):
         if intent in content:
+            logger.info("[intent] LLM→%s  Q=\"%s\"", intent, question)
             return intent
     return "qa"
 

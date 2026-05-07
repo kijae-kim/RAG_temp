@@ -49,6 +49,9 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def _startup() -> None:
+        # intent 분류 로그를 터미널에서 볼 수 있도록 agent.tools 로거 레벨 설정
+        logging.getLogger("agent.tools").setLevel(logging.INFO)
+
         # SSE 이벤트 큐를 engine_state에 등록
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
